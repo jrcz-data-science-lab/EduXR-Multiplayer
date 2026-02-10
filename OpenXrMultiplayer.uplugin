@@ -1,0 +1,36 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "OpenXrMultiplayer",
+	"Description": "A multiplayer template plugin that is made to implement into OpenXR. Made for JRCZ middelburg ",
+	"Category": "Multiplayer Template",
+	"CreatedBy": "Danny de Vos",
+	"CreatedByURL": "https://dannydevos.net",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "OpenXrMultiplayer",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "OnlineSubsystemEOS",
+			"Enabled": true,
+			"Activate": true
+		},
+		{
+			"Name": "OnlineServicesEOS",
+			"Enabled": true,
+			"Activate": true
+		}
+	]
+}
