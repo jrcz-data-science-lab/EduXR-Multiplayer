@@ -1,18 +1,22 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+/**
+ * OpenXrMultiplayer.cpp — Plugin Module Implementation
+ *
+ * Implements the module startup/shutdown hooks for the EduXR Multiplayer plugin.
+ * Currently minimal — the real logic lives in UXrMpGameInstance and ACustomXrPawn.
+ */
 
 #include "OpenXrMultiplayer.h"
 
 #define LOCTEXT_NAMESPACE "FOpenXrMultiplayerModule"
 
+/** Called when the module is loaded into memory by the engine */
 void FOpenXrMultiplayerModule::StartupModule()
 {
-	// This code will execute after your module is loaded into memory; the exact timing is specified in the .uplugin file per-module
 }
 
+/** Called when the module is unloaded — clean up any module-level resources */
 void FOpenXrMultiplayerModule::ShutdownModule()
 {
-	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
-	// we call this function before unloading the module.
 }
 
 #undef LOCTEXT_NAMESPACE

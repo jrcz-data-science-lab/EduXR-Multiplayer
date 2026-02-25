@@ -1,22 +1,37 @@
 /**
- * EduXR Custom XR Pawn - VR Player Character
- * 
- * Custom pawn class for XR experiences that manages VR-specific components
- * and replication for multiplayer environments.
- * 
- * Features:
- *  - VR head (camera) tracking
- *  - Left and right hand tracking
- *  - Network replication for head and hand transforms
- *  - Server-authoritative pose updates
- *  - RepNotify callbacks for transform changes
+ * EduXR Custom XR Pawn - VR Player Character with Multiplayer Replication
+ *
+ * Replication design:
+ *   LOCAL PAWN (IsLocallyControlled):
+ *     - VR tracking drives Camera + MotionControllers as normal
+ *     - Every Tick, capture relative transforms and write into replicated properties
+ *     - Movement input calls Server RPCs so the server moves the actor authoritatively
+ *
+ *   NON-LOCAL PAWN (!IsLocallyControlled) on ANY machine (server or client):
+ *     - Camera/MotionController tracking is disabled (no HMD/controller connected)
+ *     - Every Tick, read replicated transforms and apply them to the components
+ *     - Actor world position is handled by Unreal's built-in movement replication
+ *
+ * Transform space:
+ *   All replicated transforms are RELATIVE TO VrOrigin. This avoids world-space
+ *   rotation issues — the transforms stay correct regardless of pawn facing direction.
+ *   On apply, we multiply by VrOrigin's world transform to get the final world position.
  */
-
 #pragma once
 
 #include "CoreMinimal.h"
+#include "InputAction.h"
+#include "InputActionValue.h"
+#include "MotionControllerComponent.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/WidgetInteractionComponent.h"
 #include "GameFramework/Pawn.h"
 #include "CustomXrPawn.generated.h"
+
+class UVrMovementComponent;
 
 UCLASS()
 class OPENXRMULTIPLAYER_API ACustomXrPawn : public APawn
@@ -24,165 +39,177 @@ class OPENXRMULTIPLAYER_API ACustomXrPawn : public APawn
 	GENERATED_BODY()
 
 public:
-	/**
-	 * Constructor
-	 * Sets default values for this pawn's properties
-	 */
 	ACustomXrPawn();
-	
-	/**
-	 * VR Head Camera Component
-	 * Represents the player's head position and rotation in VR space
-	 */
-	UPROPERTY(BlueprintReadWrite, Category = "VR Components")
-	class UCameraComponent* VRHeadCamera;
-
-	/**
-	 * Left Hand Root Component
-	 * Base scene component for left hand tracking
-	 */
-	UPROPERTY(BlueprintReadWrite, Category = "VR Components")
-	class USceneComponent* LeftHandRoot;
-
-	/**
-	 * Right Hand Root Component
-	 * Base scene component for right hand tracking
-	 */
-	UPROPERTY(BlueprintReadWrite, Category = "VR Components")
-	class USceneComponent* RightHandRoot;
-
-	/**
-	 * Left Hand Skeletal Mesh
-	 * Visual representation of the left hand
-	 */
-	UPROPERTY(BlueprintReadWrite, Category = "VR Components")
-	class USkeletalMeshComponent* LeftHandMesh;
-
-	/**
-	 * Right Hand Skeletal Mesh
-	 * Visual representation of the right hand
-	 */
-	UPROPERTY(BlueprintReadWrite, Category = "VR Components")
-	class USkeletalMeshComponent* RightHandMesh;
-
-	/**
-	 * Replicated Head Transform
-	 * Position and rotation of the player's head
-	 * Replicated to all clients and triggers OnRep_HeadTransform when changed
-	 */
-	UPROPERTY(ReplicatedUsing=OnRep_HeadTransform, BlueprintReadOnly, Category = "VR Replication")
-	FTransform HeadTransform;
-
-	/**
-	 * Replicated Left Hand Transform
-	 * Position and rotation of the player's left hand
-	 * Replicated to all clients and triggers OnRep_LeftHandTransform when changed
-	 */
-	UPROPERTY(ReplicatedUsing=OnRep_LeftHandTransform, BlueprintReadOnly, Category = "VR Replication")
-	FTransform LeftHandTransform;
-
-	/**
-	 * Replicated Right Hand Transform
-	 * Position and rotation of the player's right hand
-	 * Replicated to all clients and triggers OnRep_RightHandTransform when changed
-	 */
-	UPROPERTY(ReplicatedUsing=OnRep_RightHandTransform, BlueprintReadOnly, Category = "VR Replication")
-	FTransform RightHandTransform;
 
 protected:
-	/**
-	 * Called when the game starts or when spawned
-	 * Initializes VR components and tracking
-	 */
 	virtual void BeginPlay() override;
-	
-	/**
-	 * Get properties to replicate
-	 * Registers which properties should be replicated across the network
-	 */
-	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
-	
-	/**
-	 * Server RPC: Update head pose
-	 * Called by client to send head position/rotation to server
-	 * Server validates and replicates to all clients
-	 * 
-	 * @param NewHeadTransform The new head position and rotation
-	 */
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_UpdateHeadPose(FTransform NewHeadTransform);
-
-	/**
-	 * Server RPC: Update hand poses
-	 * Called by client to send both hand positions/rotations to server
-	 * Server validates and replicates to all clients
-	 * 
-	 * @param NewLeftHand The new left hand position and rotation
-	 * @param NewRightHand The new right hand position and rotation
-	 */
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_UpdateHandPoses(FTransform NewLeftHand, FTransform NewRightHand);
-
-	/**
-	 * RepNotify: Head Transform Changed
-	 * Called on all clients when the replicated head transform changes
-	 * Updates the VR head camera component position
-	 */
-	UFUNCTION()
-	void OnRep_HeadTransform();
-
-	/**
-	 * RepNotify: Left Hand Transform Changed
-	 * Called on all clients when the replicated left hand transform changes
-	 * Updates the left hand mesh position and rotation
-	 */
-	UFUNCTION()
-	void OnRep_LeftHandTransform();
-
-	/**
-	 * RepNotify: Right Hand Transform Changed
-	 * Called on all clients when the replicated right hand transform changes
-	 * Updates the right hand mesh position and rotation
-	 */
-	UFUNCTION()
-	void OnRep_RightHandTransform();
-
-	/**
-	 * Update head pose from local OpenXR input
-	 * Sends the new head transform to the server for replication
-	 * Called locally by the player's VR device
-	 * 
-	 * @param NewHeadTransform The new head position and rotation from OpenXR
-	 */
-	UFUNCTION(BlueprintCallable, Category = "VR")
-	void UpdateHeadPose(const FTransform& NewHeadTransform);
-
-	/**
-	 * Update hand poses from local OpenXR input
-	 * Sends both hand transforms to the server for replication
-	 * Called locally by the player's VR device
-	 * 
-	 * @param NewLeftHand The new left hand position and rotation from OpenXR
-	 * @param NewRightHand The new right hand position and rotation from OpenXR
-	 */
-	UFUNCTION(BlueprintCallable, Category = "VR")
-	void UpdateHandPoses(const FTransform& NewLeftHand, const FTransform& NewRightHand);
-
-public:	
-	/**
-	 * Tick - Called every frame
-	 * Used for continuous updates to VR tracking and synchronization
-	 * 
-	 * @param DeltaTime Time elapsed since last frame in seconds
-	 */
 	virtual void Tick(float DeltaTime) override;
+	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	// ─────────────────────────────────────────────
+	// Core VR Components
+	// ─────────────────────────────────────────────
+
+	/** Scene root — represents the VR play-space origin */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	USceneComponent* VrOrigin;
+
+	/** VR camera, attached to VrOrigin. Tracks the HMD on the local pawn */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	UCameraComponent* Camera;
+
+	/** Capsule used for collision */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	UCapsuleComponent* CapsuleCollider;
+
+	/** Left motion controller — tracks the left hand on the local pawn */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	UMotionControllerComponent* MotionControllerLeft;
+
+	/** Right motion controller — tracks the right hand on the local pawn */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	UMotionControllerComponent* MotionControllerRight;
+
+	/** Widget interaction for left hand UI pointing */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	UWidgetInteractionComponent* WidgetInteractionLeft;
+
+	/** Widget interaction for right hand UI pointing */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR", meta=(AllowPrivateAccess="true"))
+	UWidgetInteractionComponent* WidgetInteractionRight;
+
+	// ─────────────────────────────────────────────
+	// Visual Meshes (what other players see)
+	// ─────────────────────────────────────────────
+
+	/** Static mesh representing the HMD — attached to Camera so it follows head tracking */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR|Visuals", meta=(AllowPrivateAccess="true"))
+	UStaticMeshComponent* HeadMountedDisplayMesh;
+
+	/** Left hand skeletal mesh — attached to Mo	tionControllerLeft */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR|Visuals", meta=(AllowPrivateAccess="true"))
+	USkeletalMeshComponent* HandLeft;
+
+	/** Right hand skeletal mesh — attached to MotionControllerRight */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR|Visuals", meta=(AllowPrivateAccess="true"))
+	USkeletalMeshComponent* HandRight;
+
+	/** Body mesh — attached to VrOrigin */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR|Visuals", meta=(AllowPrivateAccess="true"))
+	USkeletalMeshComponent* PlayerMesh;
+
+	/** Custom VR movement component (smooth locomotion + snap turn) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="VR|Movement", meta=(AllowPrivateAccess="true"))
+	UVrMovementComponent* vrMovementComponent;
+
+	// ─────────────────────────────────────────────
+	// Input Actions
+	// ─────────────────────────────────────────────
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+	UInputAction* MoveForwardAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+	UInputAction* MoveRightAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+	UInputAction* SnapTurnAction;
+
+	// ─────────────────────────────────────────────
+	// Replicated VR Tracking Transforms
+	// All transforms are RELATIVE TO VrOrigin
+	// ─────────────────────────────────────────────
 
 	/**
-	 * Setup player input component
-	 * Binds input actions to functions for VR interaction
-	 * 
-	 * @param PlayerInputComponent The input component to bind actions to
+	 * Head (camera) transform relative to VrOrigin
+	 * Replicated from server → all clients
+	 * Written by the owning client via ServerUpdateVRTransforms
 	 */
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	UPROPERTY(Replicated)
+	FTransform Rep_HeadTransform;
 
+	/**
+	 * Left hand (motion controller) transform relative to VrOrigin
+	 */
+	UPROPERTY(Replicated)
+	FTransform Rep_LeftHandTransform;
+
+	/**
+	 * Right hand (motion controller) transform relative to VrOrigin
+	 */
+	UPROPERTY(Replicated)
+	FTransform Rep_RightHandTransform;
+
+	// ─────────────────────────────────────────────
+	// Server RPCs
+	// ─────────────────────────────────────────────
+
+	/**
+	 * Server RPC — sends local VR tracking data to the server every Tick
+	 *
+	 * Unreliable because this fires every frame (~90Hz). If a packet is lost,
+	 * the next frame immediately sends fresh data, so reliability is unnecessary.
+	 *
+	 * The server stores the transforms in the replicated properties, which
+	 * Unreal automatically sends to all other clients.
+	 */
+	UFUNCTION(Server, Unreliable)
+	void ServerUpdateVRTransforms(
+		FTransform InHead,
+		FTransform InLeftHand,
+		FTransform InRightHand
+	);
+
+	/**
+	 * Server RPC — executes movement on the server
+	 *
+	 * Unreliable because this is continuous input (thumbstick held down).
+	 * The actor's world position is replicated automatically via bReplicateMovement.
+	 */
+	UFUNCTION(Server, Unreliable)
+	void ServerMoveForward(float Value);
+
+	/** Server RPC — executes strafe on the server */
+	UFUNCTION(Server, Unreliable)
+	void ServerMoveRight(float Value);
+
+	/**
+	 * Server RPC — executes snap turn on the server
+	 *
+	 * Reliable because snap turn is a discrete event that must not be lost
+	 */
+	UFUNCTION(Server, Reliable)
+	void ServerSnapTurn(float Value);
+
+private:
+	// ─────────────────────────────────────────────
+	// Internal Helpers
+	// ─────────────────────────────────────────────
+
+	/** Input callback wrappers — handle input locally + send to server */
+	void HandleMoveForward(const FInputActionValue& Value);
+	void HandleMoveRight(const FInputActionValue& Value);
+	void HandleSnapTurn(const FInputActionValue& Value);
+
+	/**
+	 * Captures the current VR component transforms relative to VrOrigin
+	 * and sends them to the server for replication.
+	 * Called every Tick on the locally controlled pawn only.
+	 */
+	void CaptureAndSendVRTransforms();
+
+	/**
+	 * Applies the replicated VR transforms to the visual components
+	 * so other players see head/hands in the correct positions.
+	 *
+	 * Called every Tick on non-local pawns.
+	 * Works on BOTH server and clients (unlike OnRep which only works on clients).
+	 *
+	 * Sets Camera and MotionController world transforms by combining
+	 * the relative replicated transform with VrOrigin's world transform.
+	 * Since HeadMountedDisplayMesh/HandLeft/HandRight are attached as children,
+	 * they follow automatically.
+	 */
+	void ApplyReplicatedVRTransforms();
 };
