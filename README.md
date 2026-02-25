@@ -1,8 +1,8 @@
 ﻿# EduXR Multiplayer Plugin
 
-A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem.
+A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem, with full VR head and hand tracking replication.
 
-> **⚠️ Status:** Beta (v0.2.0) - Still in active development. Core functionality working, additional features coming soon.
+> **⚠️ Status:** Beta (v0.3.0) - Still in active development. Session management, VR tracking replication, and movement replication working.
 
 ## Features
 
@@ -16,9 +16,23 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
   - Switches to EOS networking when user explicitly logs in
   - Seamless switching between network modes
 
+- 🕶️ **VR Tracking Replication**
+  - Head (HMD) position and rotation synced across all players
+  - Left and right hand (motion controller) transforms synced
+  - Relative-to-VrOrigin transform space — rotation-independent, works regardless of pawn facing
+  - Non-local pawns disable HMD lock and controller tracking to prevent engine override
+  - High-frequency unreliable Server RPCs for smooth tracking updates
+
+- 🏃 **Multiplayer Movement**
+  - Smooth forward/backward and strafe locomotion via VrMovementComponent
+  - Snap turn with deadzone and cooldown
+  - Movement replicated via Server RPCs + Unreal's built-in `bReplicateMovement`
+  - Client-side prediction for instant local responsiveness
+
 - 🛠️ **Developer Friendly**
   - Blueprint-accessible functions for session management
   - Automatic net driver configuration
+  - Comprehensive `/** */` comments on every function and property
   - Comprehensive logging for debugging
 
 - 🌐 **Full Session Management**
@@ -32,11 +46,11 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
 - **Unreal Engine:** 5.7.2 (tested and working)
 - **Other Versions:** May work on UE 5.5+, but only tested on 5.7.2
 - **Platform:** Windows (primary platform, other platforms untested)
-- **Epic Online Services (EOS) SDK:** Optional - for online multiplayer features
+- **Epic Online Services (EOS) SDK:** Optional — for online multiplayer features
 
 ## Installation
 
-### Method 1: Clone to Plugins Folder
+### Clone to Plugins Folder
 
 1. Navigate to your project's `Plugins` folder (create it if it doesn't exist)
 2. Clone this repository:
@@ -46,27 +60,18 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
 3. Restart Unreal Editor
 4. Enable the plugin in Edit → Plugins → Project → Networking
 
-### Method 2: Download Release
-
-1. Download the latest release from [Releases](https://github.com/jrcz-data-science-lab/EduXR-Multiplayer/releases)
-2. Extract to `YourProject/Plugins/EduXR-Multiplayer`
-3. Restart Unreal Editor
-4. Enable the plugin
-3. Restart Unreal Editor
-4. Enable the plugin
-
 ## Included Content
 
 The plugin includes blueprints, UI components, and test levels **(NOT FINAL)**:
 
 ### Content Directory Structure
-- **Blueprints/** - Blueprint examples and utility actors for multiplayer
-- **Levels/** - Test levels demonstrating multiplayer functionality
-- **UI/** - UI components for multiplayer menus and lobby screens
+- **Blueprints/** — Blueprint examples and utility actors for multiplayer
+- **Levels/** — Test levels demonstrating multiplayer functionality
+- **UI/** — UI components for multiplayer menus and lobby screens
 
-These assets are optional - you can use the plugin without them.
+These assets are optional — you can use the plugin's C++ classes directly without them.
 
-## Quick Start
+## Quick Start~~~~
 
 ### 1. Set Up Your Game Instance
 
@@ -82,7 +87,16 @@ In your project settings, set the Game Instance Class to use the plugin's game i
 GameInstanceClass=/EduXR/Blueprints/BP_YourGameInstance.BP_YourGameInstance_C
 ```
 
-### 2. Configure Network Driver (Important!)
+### 2. Set Up Your VR Pawn
+
+Use `CustomXrPawn` as the base class for your VR player pawn:
+
+- **Blueprint:** Create a Blueprint based on `CustomXrPawn`
+- The pawn comes with: VrOrigin, Camera, MotionControllerLeft/Right, HandLeft/Right meshes, HMD mesh, CapsuleCollider, PlayerMesh, VrMovementComponent
+- Assign meshes and input actions in the Blueprint defaults
+- All VR tracking and movement replication is handled automatically
+
+### 3. Configure Network Driver (Important!)
 
 Add this to your `DefaultEngine.ini`:
 
@@ -102,7 +116,7 @@ bEnabled=true
 bEnabled=true
 ```
 
-### 3. Using in Blueprints
+### 4. Using in Blueprints
 
 #### Host a Session
 ```
@@ -160,6 +174,30 @@ LAN/IP Networking         P2P Networking
 Port 7777                 EOS Lobbies
 ```
 
+### VR Tracking Replication
+
+```
+┌─────────────────────────────────────────────────────┐
+│  LOCAL PAWN (IsLocallyControlled)                   │
+│  HMD + Controllers → Camera + MotionControllers    │
+│  Every Tick:                                        │
+│    1. Capture relative transforms (to VrOrigin)     │
+│    2. Send via ServerUpdateVRTransforms (unreliable) │
+│    3. Server stores in Rep_ properties              │
+│    4. Unreal replicates to all other clients        │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│  NON-LOCAL PAWN (!IsLocallyControlled)              │
+│  Tracking disabled (no HMD lock, no controller src) │
+│  Every Tick:                                        │
+│    1. Read Rep_ transforms                          │
+│    2. Multiply by VrOrigin world transform          │
+│    3. Set Camera + MotionController world transforms│
+│    4. Attached meshes follow automatically          │
+└─────────────────────────────────────────────────────┘
+```
+
 ### EOS Integration (Optional)
 
 If you want online multiplayer with EOS:
@@ -171,7 +209,7 @@ If you want online multiplayer with EOS:
 
 ## API Reference
 
-### Blueprint Functions
+### Session Management (XrMpGameInstance)
 
 #### `Host Session`
 Creates and hosts a new multiplayer session.
@@ -197,7 +235,40 @@ Destroys the current active session.
 #### `Login Online Service`
 Explicitly logs into EOS for online multiplayer.
 
-### Configuration Properties
+### VR Pawn (CustomXrPawn)
+
+#### Components (created in C++)
+| Component | Type | Description |
+|-----------|------|-------------|
+| `VrOrigin` | SceneComponent | Root — VR play-space origin |
+| `Camera` | CameraComponent | Tracks HMD on local pawn |
+| `MotionControllerLeft` | MotionControllerComponent | Left hand tracking |
+| `MotionControllerRight` | MotionControllerComponent | Right hand tracking |
+| `HeadMountedDisplayMesh` | StaticMeshComponent | Visual HMD mesh (attached to Camera) |
+| `HandLeft` | SkeletalMeshComponent | Left hand mesh (attached to MotionControllerLeft) |
+| `HandRight` | SkeletalMeshComponent | Right hand mesh (attached to MotionControllerRight) |
+| `WidgetInteractionLeft` | WidgetInteractionComponent | Left hand UI interaction |
+| `WidgetInteractionRight` | WidgetInteractionComponent | Right hand UI interaction |
+| `CapsuleCollider` | CapsuleComponent | Collision capsule |
+| `PlayerMesh` | SkeletalMeshComponent | Body mesh |
+| `VrMovementComponent` | VrMovementComponent | Smooth locomotion + snap turn |
+
+#### Input Actions (set in Blueprint)
+| Property | Description |
+|----------|-------------|
+| `MoveForwardAction` | Enhanced Input action for forward/backward |
+| `MoveRightAction` | Enhanced Input action for strafe left/right |
+| `SnapTurnAction` | Enhanced Input action for snap turn |
+
+### VR Movement (VrMovementComponent)
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `moveSpeed` | 150 cm/s | Smooth locomotion speed |
+| `snapTurnDegree` | 45° | Degrees per snap turn |
+| `snapTurnDeadzone` | 0.5 | Thumbstick deadzone for snap turn |
+
+### Configuration Properties (XrMpGameInstance)
 
 #### `Map Url` (FString)
 The map to load when hosting a session.
@@ -209,6 +280,18 @@ The map to return to when leaving a session.
 
 #### `Custom Username` (FString)
 Optional custom username to display in sessions.
+
+## Testing Multiplayer Locally
+
+To test VR multiplayer with two instances on the same machine:
+
+1. **Package the project** or use standalone builds
+2. Launch **Instance 1** normally (with VR headset connected)
+3. Launch **Instance 2** with the `-nohmd` flag for desktop spectator mode
+4. Host on one instance, find + join on the other
+5. VR tracking from the headset user should replicate to the other instance
+
+> **Note:** PIE (Play-in-Editor) multiplayer is not supported. Use standalone builds for testing.
 
 ## Troubleshooting
 
@@ -227,22 +310,23 @@ Optional custom username to display in sessions.
 - The plugin will automatically create a dummy user ID for Null subsystem
 - Ignore this message if you want LAN-only gameplay
 
+### Hands Appear at World Origin on Remote Players
+- Ensure `BeginPlay` disables tracking on non-local pawns (this is done automatically in CustomXrPawn)
+- If using a Blueprint child, make sure you call `Super::BeginPlay`
+
+### Replication Only Works When VR is Host
+- Ensure the pawn has `bReplicates = true` and `SetReplicateMovement(true)`
+- Ensure Server RPCs are declared with `UFUNCTION(Server, ...)` in the header
+- Check that the pawn is possessed by a PlayerController (needed for RPC ownership)
+
 ## Development
 
 ### Building from Source
 
 1. Clone the repository to your project's Plugins folder
 2. Open your `.uproject` file
-3. Unreal will prompt to rebuild - click Yes
+3. Unreal will prompt to rebuild — click Yes
 4. The plugin will compile automatically
-
-### Contributing
-
-Contributions are welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
 
 ## Known Limitations
 
@@ -251,17 +335,17 @@ Contributions are welcome! Please:
 - Not all features are complete
 - Some Content assets are still being created
 - Only tested on UE 5.7.2 (other versions may have compatibility issues)
+- PIE multiplayer not functional — use standalone builds
 
 **Functional Limitations:**
 - EOS voice chat requires ≤16 players (automatic voice chat disabled for larger lobbies)
-- Seamless travel not fully supported - uses absolute travel for session creation
-- Primary testing on Windows - other platforms may need adjustments
+- Seamless travel not fully supported — uses absolute travel for session creation
+- Primary testing on Windows — other platforms may need adjustments
 - Content directory assets still under development
-
 
 ## License
 
-**Proprietary License** - See [LICENSE](LICENSE) file for details
+**Proprietary License** — See [LICENSE](LICENSE) file for details
 
 This software is the exclusive property of JRCZ Data Science Lab and KamiDanji.
 Unauthorized access, copying, modification, or distribution is strictly prohibited.
