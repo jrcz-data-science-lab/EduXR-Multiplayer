@@ -1,4 +1,4 @@
-﻿# Changelog
+﻿﻿# Changelog
 
 All notable changes to the EduXR Multiplayer Plugin will be documented in this file.
 
