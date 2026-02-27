@@ -318,11 +318,11 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 	// Check if we're using EOS subsystem (not Null)
 	bool bUsingEOSSubsystem = (OSS && OSS->GetSubsystemName() == FName(TEXT("EOS")));
 	
-	// Only configure net driver if using EOS - otherwise keep default IpNetDriver from config
-	if (bUsingEOSSubsystem)
-	{
-		ConfigureNetDriverForSubsystem(false); // false = use EOS driver
-	}
+	// Configure net driver for the chosen subsystem
+	// EOS needs NetDriverEOSBase, Null/LAN needs IpNetDriver
+	// BOTH cases must be configured explicitly because the ini default might
+	// have been changed by a previous EOS session in the same game instance
+	ConfigureNetDriverForSubsystem(!bUsingEOSSubsystem);
 	
 	if (OSS)
 	{
@@ -464,9 +464,16 @@ void UXrMpGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucc
 	if (bWasSuccessful)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Session Created Successfully!"));
+		
+		// Log which subsystem and net driver we're using
+		IOnlineSubsystem* OSS = GetActiveOnlineSubsystem();
+		FString SubsystemName = OSS ? OSS->GetSubsystemName().ToString() : TEXT("None");
+		UE_LOG(LogTemp, Warning, TEXT("Active subsystem: %s"), *SubsystemName);
+		
 		if (GEngine)
 		{
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green, TEXT("Session Created Successfully!"));
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green, 
+				FString::Printf(TEXT("Session Created! Subsystem: %s"), *SubsystemName));
 		}
 		
 		// Ensure the URL has ?listen parameter for listen server
@@ -478,16 +485,21 @@ void UXrMpGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucc
 		
 		UE_LOG(LogTemp, Warning, TEXT("Starting listen server with URL: %s"), *TravelURL);
 		
-		// Use absolute travel to ensure the server restarts properly as a listen server
-		// Seamless travel doesn't work well for starting a fresh listen server
+		/**
+		 * IMPORTANT: Use ServerTravel, NOT ClientTravel!
+		 * 
+		 * ServerTravel opens the map as a listen server — the engine starts the
+		 * net driver, binds the listen socket, and begins accepting connections.
+		 * 
+		 * ClientTravel just does a local map load and does NOT start a listen server.
+		 * This was causing the asymmetric join bug: the host's machine loaded the map
+		 * but never opened a listen socket, so joining clients could find the EOS session
+		 * but couldn't actually connect to the game server.
+		 */
 		UWorld* World = GetWorld();
 		if (World)
 		{
-			APlayerController* PC = World->GetFirstPlayerController();
-			if (PC)
-			{
-				PC->ClientTravel(TravelURL, ETravelType::TRAVEL_Absolute);
-			}
+			World->ServerTravel(TravelURL);
 		}
 	}
 	else
@@ -581,6 +593,9 @@ void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
 	// Check if we're using Null subsystem
 	bool bUsingNullSubsystem = (OSS && OSS->GetSubsystemName() == FName(TEXT("Null")));
 
+	// Configure net driver to match the subsystem we're searching with
+	ConfigureNetDriverForSubsystem(bUsingNullSubsystem);
+
 	SessionSearch = MakeShareable(new FOnlineSessionSearch());
 	SessionSearch->MaxSearchResults = MaxSearchResults;
 	SessionSearch->bIsLanQuery = bIsLan || bUsingNullSubsystem;
@@ -654,15 +669,50 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 {
 	if (bWasSuccessful && SessionSearch.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Found %d sessions"), SessionSearch->SearchResults.Num());
+		UE_LOG(LogTemp, Warning, TEXT("FindSessions Complete — Found %d sessions"), SessionSearch->SearchResults.Num());
 
 		if (GEngine)
 		{
-			GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green,
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
 			                                 FString::Printf(
 				                                 TEXT("Found %d sessions"), SessionSearch->SearchResults.Num()));
 		}
-		// Expose search results to Blueprint for UI display
+
+		// Log details for each found session (helps debug LAN discovery issues)
+		for (int32 i = 0; i < SessionSearch->SearchResults.Num(); i++)
+		{
+			const FOnlineSessionSearchResult& Result = SessionSearch->SearchResults[i];
+			FString ServerName;
+			Result.Session.SessionSettings.Get(FName("SERVER_NAME"), ServerName);
+
+			UE_LOG(LogTemp, Warning, TEXT("  Session[%d]: Owner=%s, ServerName=%s, OpenSlots=%d/%d, Ping=%dms"),
+				i,
+				*Result.Session.OwningUserName,
+				*ServerName,
+				Result.Session.NumOpenPublicConnections,
+				Result.Session.SessionSettings.NumPublicConnections,
+				Result.PingInMs);
+
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Cyan,
+					FString::Printf(TEXT("  [%d] %s (%s) — %d/%d slots, %dms ping"),
+						i, *ServerName, *Result.Session.OwningUserName,
+						Result.Session.SessionSettings.NumPublicConnections - Result.Session.NumOpenPublicConnections,
+						Result.Session.SessionSettings.NumPublicConnections,
+						Result.PingInMs));
+			}
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("FindSessions Failed! bWasSuccessful=%s, SessionSearch Valid=%s"),
+			bWasSuccessful ? TEXT("true") : TEXT("false"),
+			SessionSearch.IsValid() ? TEXT("true") : TEXT("false"));
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FindSessions Failed!"));
+		}
 	}
 }
 
@@ -694,6 +744,10 @@ void UXrMpGameInstance::JoinSession(int32 SessionIndex)
 	// Get the active subsystem to determine if we're using Null
 	IOnlineSubsystem* OSS = GetActiveOnlineSubsystem();
 	bool bUsingNullSubsystem = (OSS && OSS->GetSubsystemName() == FName(TEXT("Null")));
+
+	// Configure net driver for the chosen subsystem before joining
+	// The joining client needs the same net driver type as the host
+	ConfigureNetDriverForSubsystem(bUsingNullSubsystem);
 
 	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
 	if (!LocalPlayer)
@@ -772,24 +826,54 @@ void UXrMpGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionC
 			UE_LOG(LogTemp, Warning, TEXT("Join Session Success! ConnectInfo: %s"), *ConnectInfo);
 			if (GEngine)
 			{
-				GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Green,
-				                                 FString::Printf(TEXT("Joined Session! Travel to: %s"), *ConnectInfo));
+				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
+				                                 FString::Printf(TEXT("Joined Session! Traveling to: %s"), *ConnectInfo));
+			}
+
+			// Validate the connect string is not empty
+			if (ConnectInfo.IsEmpty())
+			{
+				UE_LOG(LogTemp, Error, TEXT("ConnectInfo is EMPTY — cannot travel to server!"));
+				if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("ERROR: ConnectInfo is empty!"));
+				return;
 			}
 
 			APlayerController* PC = GetWorld()->GetFirstPlayerController();
 			if (PC)
 			{
+				UE_LOG(LogTemp, Warning, TEXT("ClientTravel starting to: %s"), *ConnectInfo);
+				if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Yellow,
+					FString::Printf(TEXT("ClientTravel to: %s"), *ConnectInfo));
 				PC->ClientTravel(ConnectInfo, ETravelType::TRAVEL_Absolute);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Error, TEXT("OnJoinSessionComplete: PlayerController is NULL — cannot travel!"));
+				if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("ERROR: No PlayerController for travel!"));
 			}
 		}
 		else
 		{
 			UE_LOG(LogTemp, Error, TEXT("Failed to GetResolvedConnectString for session: %s"), *SessionName.ToString());
+			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red,
+				FString::Printf(TEXT("ERROR: No ConnectString for session %s"), *SessionName.ToString()));
 		}
 	}
 	else
 	{
-		UE_LOG(LogTemp, Error, TEXT("Join Session Failed with result: %d"), (int32)Result);
+		FString ResultStr;
+		switch (Result)
+		{
+		case EOnJoinSessionCompleteResult::SessionIsFull: ResultStr = TEXT("Session Is Full"); break;
+		case EOnJoinSessionCompleteResult::SessionDoesNotExist: ResultStr = TEXT("Session Does Not Exist"); break;
+		case EOnJoinSessionCompleteResult::CouldNotRetrieveAddress: ResultStr = TEXT("Could Not Retrieve Address"); break;
+		case EOnJoinSessionCompleteResult::AlreadyInSession: ResultStr = TEXT("Already In Session"); break;
+		case EOnJoinSessionCompleteResult::UnknownError: ResultStr = TEXT("Unknown Error"); break;
+		default: ResultStr = FString::Printf(TEXT("Result Code: %d"), (int32)Result); break;
+		}
+		UE_LOG(LogTemp, Error, TEXT("Join Session Failed: %s"), *ResultStr);
+		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red,
+			FString::Printf(TEXT("Join Failed: %s"), *ResultStr));
 	}
 }
 

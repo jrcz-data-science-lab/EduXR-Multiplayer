@@ -4,6 +4,92 @@ All notable changes to the EduXR Multiplayer Plugin will be documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.4.0] - 2026-02-27 (Beta)
+
+### Status
+⚠️ **Beta Release** - VR physics collision rework, world-space UI interaction, gravity/jump system, and depenetration resolution. Active development.
+
+### Engine Support
+- ✅ **Unreal Engine 5.7.2** - Tested and working
+- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+
+### Tested On
+- Windows with UE 5.7.2
+- Windows standalone mode multiplayer (VR host + desktop client)
+- LAN networking (Null subsystem)
+- EOS networking (when logged in)
+
+### Added
+- **World-Space Widget Interaction** — Trigger input bindings for in-world UI interaction
+  - `LeftTriggerAction` / `RightTriggerAction` input actions for pressing UI buttons via motion controllers
+  - `WidgetInteractionLeft` / `WidgetInteractionRight` configured with trace channel, interaction distance (500cm), and debug line visualization
+  - `PressPointerKey` / `ReleasePointerKey` with `EKeys::LeftMouseButton` to simulate mouse clicks on world-space UMG widgets
+  - World-space UI Blueprints (`BP_WorldMenu`, `BP_XrMenu`) edited to place interactive widgets in the level
+- **Gravity & Jump System** — Full gravity simulation in `VrMovementComponent`
+  - Configurable gravity (`GravityZ`, default -980 cm/s²) applied every tick when not grounded
+  - Ground detection via line trace from capsule center downward past capsule bottom
+  - Jump with `JumpZVelocity` (default 420 cm/s), only allowed when grounded
+  - Terminal velocity capped at -2000 cm/s to prevent fall-through
+  - `ServerJump` reliable Server RPC for network-replicated jumping
+  - Automatic floor-snap on landing — sweeps the pawn down to the detected floor surface
+- **Depenetration Resolution** — Escape from embedded geometry automatically
+  - Sweep-based penetration detection every tick before ground check
+  - Uses `ECC_WorldStatic` channel — only depenetrates against static world geometry, not physics objects
+  - Applies push-out along hit Normal with PenetrationDepth + margin
+  - Prevents the "frozen player" bug where embedded capsule blocks all sweep-based movement
+- **Capsule Overlap Physics Push** — Walking into physics objects pushes them away
+  - `OnCapsuleOverlap` callback applies impulse to simulating-physics actors
+  - Horizontal-only push direction (Z zeroed) to prevent launching objects skyward
+  - Configurable `PhysicsPushForce` (default 500N)
+  - Fallback: pushes in actor forward direction if object is directly on top of the player
+- **Spawn Position Floor Correction** — `VrMovementComponent::BeginPlay` traces downward to find the floor and positions the capsule correctly above it, preventing the capsule from spawning embedded in the floor
+- **VrOrigin Floor-Level Enforcement** — VrOrigin offset (`-HalfHeight`) reinforced in Constructor, BeginPlay, and every Tick to prevent Blueprint CDO from overriding the floor-level positioning
+- **Comprehensive Debug Logging** — Height debugging, ground state logging, movement delta tracking, and network state display (all stripped in shipping builds via `#if !UE_BUILD_SHIPPING`)
+
+### Changed
+- **Capsule Collision Rework** — Completely overhauled player-physics interaction
+  - Capsule radius reduced from 34cm to **20cm** — slimmer profile so players don't clip walls they're not near
+  - `ECC_PhysicsBody` and `ECC_Destructible` collision response changed from `ECR_Block` → **`ECR_Overlap`**
+  - Eliminates the "picked-up object collides with body and launches player at insane speeds" bug
+  - Eliminates the "walking into physics cubes stops the player dead" bug
+  - Capsule collision settings reinforced in BeginPlay to override Blueprint CDO values
+  - Overlap events enabled (`SetGenerateOverlapEvents(true)`) for physics push callback
+- **VrMovementComponent** now extends `UPawnMovementComponent` (was `UActorComponent`)
+  - Enables integration with Unreal's movement framework
+- **MoveForward / MoveRight** now use HMD (camera) forward/right direction instead of actor forward
+  - Movement is camera-relative: you walk where you're looking
+  - Returns the computed delta vector for server replication (server doesn't need VR tracking data)
+- **SnapTurn** now uses dual reset mechanism — deadzone reset + cooldown timer (`SnapTurnCooldown`, default 0.3s)
+  - Fixes the "snap turn only works once" bug where the neutral input never arrived
+- **Added `InputCore` module dependency** to `OpenXrMultiplayer.Build.cs` for `EKeys::LeftMouseButton` symbol
+
+### Fixed
+- Fixed physics objects (cubes, guns, balls) colliding with player capsule and launching the player at extreme speeds — capsule now overlaps instead of blocking physics objects
+- Fixed player capsule being too wide (34cm radius) causing wall collisions when the player wasn't visually near walls — reduced to 20cm
+- Fixed player unable to move after spawning — capsule was embedded in the floor; added spawn floor correction and depenetration resolution
+- Fixed VrOrigin being at capsule center instead of capsule bottom — player appeared ~2.5m tall; offset now enforced every tick
+- Fixed depenetration system pushing player away from held/grabbed physics objects — depenetration now only checks `ECC_WorldStatic`, ignoring physics bodies
+- Fixed `LNK2019` linker error for `EKeys::LeftMouseButton` — added `InputCore` module to Build.cs dependencies
+- Fixed snap turn only firing once per session — added cooldown-based reset as fallback when neutral input doesn't arrive
+
+### Known Limitations
+- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
+- Seamless travel not supported — uses absolute travel for session creation
+- Primary testing on Windows platform only
+- UE 5.7.2 only — untested on other engine versions
+- Some Content/ assets still in development
+- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
+
+### Technical Details
+- Capsule overlap response for `ECC_PhysicsBody` with impulse-based push in overlap callback
+- `ResolvePenetration` sweep against `ECC_WorldStatic` only — safe for grabbed objects
+- Floor correction in `VrMovementComponent::BeginPlay` via downward `ECC_WorldStatic` line trace
+- Ground detection via line trace + gravity tick with terminal velocity cap
+- VrOrigin Z-offset enforced in Constructor (-88), BeginPlay (-HalfHeight), and Tick (conditional set)
+- Widget interaction via `PressPointerKey`/`ReleasePointerKey` on `EKeys::LeftMouseButton`
+
+---
+
 ## [0.3.0] - 2026-02-25 (Beta)
 
 ### Status

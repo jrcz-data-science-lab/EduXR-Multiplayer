@@ -44,6 +44,7 @@ public class OpenXrMultiplayer : ModuleRules
 				"XRBase",               // Base XR types (MotionControllerComponent etc.)
 				"EnhancedInput",        // Enhanced Input System for VR controllers
 				"UMG",                  // Widget Interaction (UWidgetInteractionComponent)
+				"InputCore",            // EKeys definitions (e.g. EKeys::LeftMouseButton)
 			}
 		);
 

@@ -41,6 +41,10 @@ class OPENXRMULTIPLAYER_API ACustomXrPawn : public APawn
 public:
 	ACustomXrPawn();
 
+	/** Get the VR camera component (for HMD-oriented movement) */
+	UFUNCTION(BlueprintCallable, Category="VR")
+	UCameraComponent* GetVRCamera() const { return Camera; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
@@ -116,6 +120,15 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
 	UInputAction* SnapTurnAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+	UInputAction* JumpAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+	UInputAction* LeftTriggerAction;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Input")
+	UInputAction* RightTriggerAction;
+
 	// ─────────────────────────────────────────────
 	// Replicated VR Tracking Transforms
 	// All transforms are RELATIVE TO VrOrigin
@@ -164,15 +177,19 @@ protected:
 	/**
 	 * Server RPC — executes movement on the server
 	 *
+	 * Receives a pre-computed movement delta vector from the client.
+	 * The client computes this using the HMD forward direction, so the server
+	 * doesn't need VR tracking data to determine move direction.
+	 *
 	 * Unreliable because this is continuous input (thumbstick held down).
 	 * The actor's world position is replicated automatically via bReplicateMovement.
 	 */
 	UFUNCTION(Server, Unreliable)
-	void ServerMoveForward(float Value);
+	void ServerMoveForward(FVector MoveDelta);
 
-	/** Server RPC — executes strafe on the server */
+	/** Server RPC — executes strafe on the server using pre-computed delta */
 	UFUNCTION(Server, Unreliable)
-	void ServerMoveRight(float Value);
+	void ServerMoveRight(FVector MoveDelta);
 
 	/**
 	 * Server RPC — executes snap turn on the server
@@ -181,6 +198,19 @@ protected:
 	 */
 	UFUNCTION(Server, Reliable)
 	void ServerSnapTurn(float Value);
+
+	/**
+	 * Server RPC — executes jump on the server
+	 *
+	 * Reliable because jump is a discrete event that must not be lost
+	 */
+	UFUNCTION(Server, Reliable)
+	void ServerJump();
+	
+	
+	/** How much force to apply when pushing physics objects (in Newtons) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="VR|Collision")
+	float PhysicsPushForce = 500.f;
 
 private:
 	// ─────────────────────────────────────────────
@@ -191,6 +221,7 @@ private:
 	void HandleMoveForward(const FInputActionValue& Value);
 	void HandleMoveRight(const FInputActionValue& Value);
 	void HandleSnapTurn(const FInputActionValue& Value);
+	void HandleJump(const FInputActionValue& Value);
 
 	/**
 	 * Captures the current VR component transforms relative to VrOrigin
@@ -212,4 +243,28 @@ private:
 	 * they follow automatically.
 	 */
 	void ApplyReplicatedVRTransforms();
+
+	void OnLeftTriggerPressed(const FInputActionValue& Value);
+	void OnLeftTriggerReleased(const FInputActionValue& Value);
+	void OnRightTriggerPressed(const FInputActionValue& Value);
+	void OnRightTriggerReleased(const FInputActionValue& Value);
+	/**
+	 * Called when the capsule overlaps a physics object.
+	 * Applies an impulse to push the object away from the player,
+	 * simulating the old "bump away" behavior without blocking movement.
+	 */
+	UFUNCTION()
+	void OnCapsuleOverlap(
+		UPrimitiveComponent* OverlappedComp,
+		AActor* OtherActor,
+		UPrimitiveComponent* OtherComp,
+		int32 OtherBodyIndex,
+		bool bFromSweep,
+		const FHitResult& SweepResult);
+	
+
+#if !UE_BUILD_SHIPPING
+	/** Debug timer for throttled network state logging (per-pawn, not static) */
+	float DebugTimer = 0.f;
+#endif
 };
