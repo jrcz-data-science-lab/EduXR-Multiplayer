@@ -1,8 +1,8 @@
-﻿﻿# EduXR Multiplayer Plugin
+﻿﻿﻿﻿# EduXR Multiplayer Plugin
 
 A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem, with full VR head and hand tracking replication.
 
-> **⚠️ Status:** Beta (v0.4.0) - Still in active development. Physics collision rework, world-space UI interaction, gravity/jump, and depenetration resolution added.
+> **⚠️ Status:** Beta (v0.5.0) - Blueprint-exposed session search results, custom server browser widgets. VR virtual keyboard C++ removed — will be reimplemented as a Blueprint widget in v0.5.1. Physics collision rework, world-space UI interaction, gravity/jump, and depenetration resolution.
 
 ## Features
 
@@ -47,6 +47,13 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
   - Configurable interaction distance and debug visualization
   - World-placed interactive menus via Blueprint widgets
 
+- ⌨️ **VR Virtual Keyboard** *(Coming in v0.5.1)*
+  - Will be a full QWERTY keyboard built as a Blueprint widget (replacing the previous C++ implementation)
+  - Number row, letter rows, Shift/Backspace/Space/Enter/Clear keys
+  - Event dispatchers for text input handling
+  - Fully editable in the UMG Designer
+  - Place on a `WidgetComponent` in the world, interact with motion controller + trigger
+
 - 🛠️ **Developer Friendly**
   - Blueprint-accessible functions for session management
   - Automatic net driver configuration
@@ -58,6 +65,13 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
   - Find and browse sessions
   - Join sessions with proper user ID handling
   - Handle session invites (EOS only)
+
+- 🔍 **Blueprint Session Browser**
+  - `FXrMpSessionResult` struct exposes ServerName, OwnerName, CurrentPlayers, MaxPlayers, PingInMs, SessionIndex
+  - `OnFindSessionsComplete_BP` delegate — bind in any widget to receive search results
+  - `GetSessionSearchResults()` — retrieve cached results at any time
+  - `IsSearchingForSessions()` — check if a search is in progress (loading spinners)
+  - Build a full server browser entirely in Blueprints — no C++ required
 
 ## Requirements
 
@@ -253,6 +267,40 @@ Destroys the current active session.
 #### `Login Online Service`
 Explicitly logs into EOS for online multiplayer.
 
+#### `Get Session Search Results` (Pure)
+Returns the cached array of `FXrMpSessionResult` from the last `Find Sessions` call.
+- **Returns:** `TArray<FXrMpSessionResult>` — empty if no search performed or last search failed
+
+#### `Is Searching For Sessions` (Pure)
+Returns `true` while a `Find Sessions` request is in progress.
+
+#### `On Find Sessions Complete BP` (Event Dispatcher)
+Multicast delegate broadcast when `Find Sessions` completes.
+- **Parameters:**
+  - `Results` (`TArray<FXrMpSessionResult>`): Array of found sessions
+  - `bWasSuccessful` (bool): Whether the search succeeded
+
+#### Session Result Struct (`FXrMpSessionResult`)
+| Field | Type | Description |
+|-------|------|-------------|
+| `ServerName` | FString | Display name set by the host |
+| `OwnerName` | FString | Name of the hosting player |
+| `CurrentPlayers` | int32 | Number of players currently in the session |
+| `MaxPlayers` | int32 | Maximum player capacity |
+| `PingInMs` | int32 | Latency in milliseconds (-1 if unknown) |
+| `SessionIndex` | int32 | Pass this to `JoinSession()` to connect |
+
+### VR Keyboard Widget *(Coming in v0.5.1)*
+
+The VR virtual keyboard will be reimplemented as a pure Blueprint widget in **v0.5.1**. The previous C++ implementation (`UVrKeyboardWidget`) was removed in v0.5.0 because Widget Blueprints that inherited from it had an empty designer, making it impossible to visually customize.
+
+The v0.5.1 Blueprint keyboard will include:
+- Full QWERTY layout with number row and modifier keys
+- Shift toggle, Backspace, Space, Enter, Clear
+- `OnTextCommitted` / `OnKeyPressed` event dispatchers
+- Fully visible and editable in the UMG Widget Designer
+- Place on a `WidgetComponent` in the world and interact with motion controllers
+
 ### VR Pawn (CustomXrPawn)
 
 #### Components (created in C++)
@@ -389,6 +437,7 @@ To test VR multiplayer with two instances on the same machine:
 - Seamless travel not fully supported — uses absolute travel for session creation
 - Primary testing on Windows — other platforms may need adjustments
 - Content directory assets still under development
+- VR keyboard not yet functional — placeholder WBP only, full Blueprint implementation coming in v0.5.1
 
 ## License
 

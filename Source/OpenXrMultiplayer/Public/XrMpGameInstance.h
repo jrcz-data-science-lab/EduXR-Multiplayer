@@ -21,6 +21,44 @@ class FOnlineSessionSettings;
 class FOnlineSessionSearch;
 
 /**
+ * Blueprint-friendly struct representing a single session search result.
+ * Exposes all the important session info so Blueprints can build custom
+ * server browser widgets without touching C++.
+ */
+USTRUCT(BlueprintType)
+struct FXrMpSessionResult
+{
+	GENERATED_BODY()
+
+	/** Display name of the server (set by host via SERVER_NAME key) */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	FString ServerName;
+
+	/** Name of the player who owns/hosts the session */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	FString OwnerName;
+
+	/** Current number of players in the session */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	int32 CurrentPlayers = 0;
+
+	/** Maximum number of players the session supports */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	int32 MaxPlayers = 0;
+
+	/** Ping to the server in milliseconds (-1 if unknown) */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	int32 PingInMs = -1;
+
+	/** Index into the internal search results array — pass to JoinSession() */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	int32 SessionIndex = -1;
+};
+
+/** Multicast delegate broadcast when FindSessions completes — bind in Blueprints to update your UI */
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnXrMpFindSessionsComplete, const TArray<FXrMpSessionResult>&, Results, bool, bWasSuccessful);
+
+/**
  * UXrMpGameInstance - Educational XR Multiplayer Game Instance
  * 
  * This class manages all multiplayer networking functionality for the EduXR plugin.
@@ -115,6 +153,34 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer")
 	FString CustomUsername;
+
+	/**
+	 * Broadcast when FindSessions completes (success or failure).
+	 * Bind this in Blueprints (e.g. your server-browser widget) to receive results.
+	 *
+	 * Example (Blueprint):
+	 *   1. Get a reference to the Game Instance, cast to XrMpGameInstance
+	 *   2. Bind Event to "On Find Sessions Complete"
+	 *   3. In the event, iterate "Results" array to populate your UI list
+	 *   4. Call JoinSession(Result.SessionIndex) when the player picks one
+	 */
+	UPROPERTY(BlueprintAssignable, Category = "XR Multiplayer")
+	FOnXrMpFindSessionsComplete OnFindSessionsComplete_BP;
+
+	/**
+	 * Get the last set of session search results.
+	 * Returns an empty array if no search has been performed or the last search failed.
+	 *
+	 * @return Array of Blueprint-friendly session result structs
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "XR Multiplayer")
+	TArray<FXrMpSessionResult> GetSessionSearchResults() const { return CachedSearchResults; }
+
+	/**
+	 * Returns true if a session search is currently in progress.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "XR Multiplayer")
+	bool IsSearchingForSessions() const { return bIsSearching; }
 
 protected:
 	/**
@@ -240,4 +306,16 @@ private:
 	 * @param bUsingNullSubsystem True to configure for Null subsystem, false for EOS
 	 */
 	void ConfigureNetDriverForSubsystem(bool bUsingNullSubsystem);
+
+	/**
+	 * Cached Blueprint-friendly session results from the last search.
+	 * Populated in OnFindSessionsComplete, returned by GetSessionSearchResults().
+	 */
+	TArray<FXrMpSessionResult> CachedSearchResults;
+
+	/**
+	 * True while a FindSessions request is in flight.
+	 * Prevents overlapping searches and lets the UI show a spinner.
+	 */
+	bool bIsSearching = false;
 };

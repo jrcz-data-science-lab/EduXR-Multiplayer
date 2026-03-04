@@ -1,8 +1,70 @@
-﻿﻿# Changelog
+﻿﻿﻿﻿﻿# Changelog
 
 All notable changes to the EduXR Multiplayer Plugin will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [0.5.0] - 2026-03-04 (Beta)
+
+### Status
+⚠️ **Beta Release** - Blueprint-exposed session search results, world-space UI widgets for server browsing. VR keyboard C++ removed — will be reimplemented as a Blueprint widget in v0.5.1. Active development.
+
+### Engine Support
+- ✅ **Unreal Engine 5.7.2** - Tested and working
+- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+
+### Tested On
+- Windows with UE 5.7.2
+- Windows standalone mode multiplayer (VR host + desktop client)
+- LAN networking (Null subsystem)
+- EOS networking (when logged in)
+
+### Added
+- **Blueprint-Exposed Session Search Results** — Full session data accessible from Blueprints for custom server browser widgets
+  - `FXrMpSessionResult` BlueprintType struct exposing: ServerName, OwnerName, CurrentPlayers, MaxPlayers, PingInMs, SessionIndex
+  - `OnFindSessionsComplete_BP` BlueprintAssignable multicast delegate — bind in any widget to receive results when `FindSessions()` completes
+  - `GetSessionSearchResults()` BlueprintCallable pure function — returns the cached array of `FXrMpSessionResult` from the last search
+  - `IsSearchingForSessions()` BlueprintCallable pure function — returns true while a search is in flight (use to show loading spinners)
+  - `SessionIndex` field in each result maps directly to `JoinSession(Index)` — no C++ needed to build a full server browser
+- **World-Space UI Server Browser** — Blueprint widgets placed in the world for browsing and joining sessions using motion controllers
+  - Interactive world-placed menus built with UMG widgets
+  - Motion controller pointing + trigger press to interact with UI elements
+- **WBP_VrKeyboard** — Empty Widget Blueprint placeholder in `Content/UI/Virtual/` for the upcoming Blueprint-based VR keyboard (v0.5.1)
+
+### Removed
+- **VR Virtual Keyboard C++ Implementation** — `UVrKeyboardWidget`, `UVrKeyHelper`, and associated header/source files have been removed
+  - The C++ approach (building the full keyboard in `NativeConstruct()`) produced an empty designer in Widget Blueprints that inherited from it, making it difficult to extend or customize in the editor
+  - Will be reimplemented as a pure Blueprint widget in **v0.5.1** with full designer support and visual editability
+
+### Changed
+- `OnFindSessionsComplete` now populates a `TArray<FXrMpSessionResult>` cache and broadcasts `OnFindSessionsComplete_BP` to all bound Blueprint listeners
+- `FindSessions()` now sets `bIsSearching = true` before the async request, cleared when the callback fires
+- Session result logging now uses the cached `FXrMpSessionResult` for consistent CurrentPlayers/MaxPlayers display
+
+### Known Limitations
+- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
+- Seamless travel not supported — uses absolute travel for session creation
+- Primary testing on Windows platform only
+- UE 5.7.2 only — untested on other engine versions
+- Some Content/ assets still in development
+- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
+- VR keyboard not yet functional — placeholder only, full implementation coming in v0.5.1
+
+### Planned for v0.5.1
+- **Blueprint VR Virtual Keyboard** — Full QWERTY keyboard rebuilt as a Blueprint widget with designer-visible layout
+  - Number row, letter rows, Shift/Backspace/Space/Enter/Clear modifier keys
+  - Shift toggles case, auto-releases after one character
+  - Event dispatchers for `OnTextCommitted` and `OnKeyPressed`
+  - Fully editable in the UMG Designer — no more empty designer issue
+  - Place on a `WidgetComponent` in the world, interact with motion controller + trigger
+
+### Technical Details
+- `FXrMpSessionResult` uses a unique name to avoid collision with engine's `FBlueprintSessionResult` in `FindSessionsCallbackProxy.h`
+- `FOnXrMpFindSessionsComplete` dynamic multicast delegate avoids engine typedef collision
+- Cached results stored in `TArray<FXrMpSessionResult> CachedSearchResults` private member
+- `bIsSearching` flag prevents overlapping searches and enables UI loading states
+
+---
 
 ## [0.4.0] - 2026-02-27 (Beta)
 

@@ -648,6 +648,7 @@ void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
 
 		UE_LOG(LogTemp, Warning, TEXT("Calling FindSessions with UserId: %s, MaxResults: %d, IsLAN: %s"), 
 			*UserId->ToString(), MaxSearchResults, bUsingNullSubsystem ? TEXT("true") : TEXT("false"));
+		bIsSearching = true;
 		SessionInterface->FindSessions(*UserId, SessionSearch.ToSharedRef());
 	}
 	else
@@ -667,6 +668,9 @@ void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
  */
 void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 {
+	bIsSearching = false;
+	CachedSearchResults.Empty();
+
 	if (bWasSuccessful && SessionSearch.IsValid())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("FindSessions Complete — Found %d sessions"), SessionSearch->SearchResults.Num());
@@ -678,12 +682,22 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 				                                 TEXT("Found %d sessions"), SessionSearch->SearchResults.Num()));
 		}
 
-		// Log details for each found session (helps debug LAN discovery issues)
+		// Build Blueprint-friendly results array and log details
 		for (int32 i = 0; i < SessionSearch->SearchResults.Num(); i++)
 		{
 			const FOnlineSessionSearchResult& Result = SessionSearch->SearchResults[i];
 			FString ServerName;
 			Result.Session.SessionSettings.Get(FName("SERVER_NAME"), ServerName);
+
+			// Populate the Blueprint struct
+			FXrMpSessionResult BPResult;
+			BPResult.ServerName = ServerName;
+			BPResult.OwnerName = Result.Session.OwningUserName;
+			BPResult.MaxPlayers = Result.Session.SessionSettings.NumPublicConnections;
+			BPResult.CurrentPlayers = BPResult.MaxPlayers - Result.Session.NumOpenPublicConnections;
+			BPResult.PingInMs = Result.PingInMs;
+			BPResult.SessionIndex = i;
+			CachedSearchResults.Add(BPResult);
 
 			UE_LOG(LogTemp, Warning, TEXT("  Session[%d]: Owner=%s, ServerName=%s, OpenSlots=%d/%d, Ping=%dms"),
 				i,
@@ -698,8 +712,8 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 				GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Cyan,
 					FString::Printf(TEXT("  [%d] %s (%s) — %d/%d slots, %dms ping"),
 						i, *ServerName, *Result.Session.OwningUserName,
-						Result.Session.SessionSettings.NumPublicConnections - Result.Session.NumOpenPublicConnections,
-						Result.Session.SessionSettings.NumPublicConnections,
+						BPResult.CurrentPlayers,
+						BPResult.MaxPlayers,
 						Result.PingInMs));
 			}
 		}
@@ -714,6 +728,9 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FindSessions Failed!"));
 		}
 	}
+
+	// Broadcast to Blueprint listeners (widgets, UI, etc.)
+	OnFindSessionsComplete_BP.Broadcast(CachedSearchResults, bWasSuccessful);
 }
 
 /**
