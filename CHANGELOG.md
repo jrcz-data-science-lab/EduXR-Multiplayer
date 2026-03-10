@@ -4,6 +4,69 @@ All notable changes to the EduXR Multiplayer Plugin will be documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.0] - 2026-03-10 (Beta)
+
+### Status
+⚠️ **Beta Release** - Fully functional C++ VR virtual keyboard with button-driven target text box selection. Active development.
+
+### Engine Support
+- ✅ **Unreal Engine 5.7.2** - Tested and working
+- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+
+### Tested On
+- Windows with UE 5.7.2
+- Windows standalone mode multiplayer (VR host + desktop client)
+- LAN networking (Null subsystem)
+- EOS networking (when logged in)
+
+### Added
+- **Fully Functional C++ VR Virtual Keyboard (`UVrKeyboardWidget`)** — Complete QWERTY keyboard built entirely in C++ using Slate widgets, fully usable in world-space via a `WidgetComponent`
+  - Number row (0–9 + shifted symbols), QWERTY letter rows, Shift/Backspace/Enter/Space/Clear modifier keys
+  - Shift toggles case and auto-releases after one character
+  - Live preview text box at the top of the keyboard shows current input
+  - `OnKeyboardTextChanged` BlueprintAssignable delegate — fires every time a key is pressed
+  - `OnKeyboardTextCommitted` BlueprintAssignable delegate — fires when Enter is pressed, passes the committed text
+  - `SetKeyboardText` / `GetKeyboardText` / `ClearKeyboardText` BlueprintCallable functions
+  - `MaxCharacters` (default 128) and `bStartShiftEnabled` configurable in Blueprint defaults
+- **Target Text Box Selection via Buttons** — Each text box in a widget has a dedicated select button placed beside it; pressing it routes all keyboard input to that box
+  - `SetTargetTextBox(UEditableTextBox*)` BlueprintCallable — call from the select button's `OnClicked` event next to each text box
+  - `GetTargetTextBox()` / `HasTargetTextBox()` BlueprintPure utility functions
+  - When Enter is pressed, the committed text is written directly into the targeted `UEditableTextBox` and the keyboard buffer is cleared for the next input
+  - When `SetTargetTextBox` is called, the target box's existing text is loaded into the keyboard so the player can edit rather than replace
+  - `TWeakObjectPtr` used internally to prevent dangling pointer crashes
+  - No focus events or click-to-focus logic required — the player explicitly selects which box to type into
+- **`AVrKeyboard` Actor** — World-space actor with a `UWidgetComponent` that hosts the `UVrKeyboardWidget`
+  - Drop `BP_VrKeyboard` into any level and assign the widget class to get a floating keyboard in world-space
+  - Interact with it using the existing `WidgetInteractionComponent` on each motion controller (trigger simulates mouse click)
+
+### Changed
+- VR keyboard no longer deferred to a future Blueprint-only version — the C++ `UVrKeyboardWidget` is the final implementation
+- `BroadcastTextCommitted` now writes to `TargetTextBox` before broadcasting the delegate, ensuring the text box is updated before any Blueprint logic runs
+- Keyboard buffer is cleared automatically after `Enter` so it is ready for the next text box without manual reset
+
+### Planned for v0.6.1
+- **Blueprint code cleanup** — Refactor and add comments to all widget Blueprint graphs for readability
+- **Build.cs optimisation** — Audit `OpenXrMultiplayer.Build.cs` and remove any unnecessary module dependencies
+- **C++ code optimisation** — General pass over all plugin C++ files for performance, clarity, and consistency
+
+### Known Limitations
+- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
+- Seamless travel not supported — uses absolute travel for session creation
+- Primary testing on Windows platform only
+- UE 5.7.2 only — untested on other engine versions
+- Some Content/ assets still in development
+- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
+- Blueprint widget graphs not yet commented/cleaned up — coming in v0.6.1
+
+### Technical Details
+- `UVrKeyboardWidget` extends `UUserWidget`, overrides `RebuildWidget()` to return a fully Slate-built keyboard (no UMG designer required)
+- `ReleaseSlateResources` properly resets `TSharedPtr<SEditableTextBox> PreviewTextBox` to avoid Slate resource leaks
+- `FKeyDefinition` struct carries Normal label, Shifted label, `EKeyAction`, and relative width — all rows built from `TArray<FKeyDefinition>` in `BuildKeyboardWidget()`
+- `TWeakObjectPtr<UEditableTextBox> TargetTextBox` — safe across GC cycles, checked with `.IsValid()` before every write
+- Target selection flow: each text box has a select button beside it → `OnClicked` calls `SetTargetTextBox` on the keyboard → keyboard stores weak ref → Enter press writes committed text back via `SetText` and clears the buffer
+
+---
+
 ## [0.5.0] - 2026-03-04 (Beta)
 
 ### Status

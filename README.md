@@ -1,8 +1,8 @@
-﻿﻿﻿﻿# EduXR Multiplayer Plugin
+﻿﻿﻿﻿﻿# EduXR Multiplayer Plugin
 
 A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem, with full VR head and hand tracking replication.
 
-> **⚠️ Status:** Beta (v0.5.0) - Blueprint-exposed session search results, custom server browser widgets. VR virtual keyboard C++ removed — will be reimplemented as a Blueprint widget in v0.5.1. Physics collision rework, world-space UI interaction, gravity/jump, and depenetration resolution.
+> **⚠️ Status:** Beta (v0.6.0) - Fully functional C++ VR virtual keyboard with button-driven target text box selection. Blueprint-exposed session search results, world-space UI server browser, physics collision rework, gravity/jump system, and depenetration resolution.
 
 ## Features
 
@@ -47,12 +47,15 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
   - Configurable interaction distance and debug visualization
   - World-placed interactive menus via Blueprint widgets
 
-- ⌨️ **VR Virtual Keyboard** *(Coming in v0.5.1)*
-  - Will be a full QWERTY keyboard built as a Blueprint widget (replacing the previous C++ implementation)
-  - Number row, letter rows, Shift/Backspace/Space/Enter/Clear keys
-  - Event dispatchers for text input handling
-  - Fully editable in the UMG Designer
-  - Place on a `WidgetComponent` in the world, interact with motion controller + trigger
+- ⌨️ **VR Virtual Keyboard**
+  - Full QWERTY keyboard built entirely in C++ using Slate — no UMG designer setup required
+  - Number row (0–9 + shifted symbols), letter rows, Shift / Backspace / Space / Enter / Clear keys
+  - Shift auto-releases after one character; live preview text box at the top of the keyboard
+  - `OnKeyboardTextChanged` and `OnKeyboardTextCommitted` BlueprintAssignable event dispatchers
+  - `SetTargetTextBox(UEditableTextBox*)` — point the keyboard at any text box from Blueprint
+  - Each text box has a dedicated **select button** beside it; pressing it calls `SetTargetTextBox` to route keyboard input to that box
+  - On Enter, committed text is written directly into the targeted `UEditableTextBox` and keyboard buffer is cleared
+  - Place `BP_VrKeyboard` in the world; interact with motion controller trigger via `WidgetInteractionComponent`
 
 - 🛠️ **Developer Friendly**
   - Blueprint-accessible functions for session management
@@ -103,7 +106,7 @@ The plugin includes blueprints, UI components, and test levels **(NOT FINAL)**:
 
 These assets are optional — you can use the plugin's C++ classes directly without them.
 
-## Quick Start~~~~
+## Quick Start
 
 ### 1. Set Up Your Game Instance
 
@@ -290,16 +293,55 @@ Multicast delegate broadcast when `Find Sessions` completes.
 | `PingInMs` | int32 | Latency in milliseconds (-1 if unknown) |
 | `SessionIndex` | int32 | Pass this to `JoinSession()` to connect |
 
-### VR Keyboard Widget *(Coming in v0.5.1)*
+### VR Keyboard Widget (`UVrKeyboardWidget`)
 
-The VR virtual keyboard will be reimplemented as a pure Blueprint widget in **v0.5.1**. The previous C++ implementation (`UVrKeyboardWidget`) was removed in v0.5.0 because Widget Blueprints that inherited from it had an empty designer, making it impossible to visually customize.
+A fully C++-built world-space virtual keyboard. Inherit from it or place `BP_VrKeyboard` directly in a level. Interacts with the existing `WidgetInteractionComponent` on each motion controller — no extra setup needed.
 
-The v0.5.1 Blueprint keyboard will include:
-- Full QWERTY layout with number row and modifier keys
-- Shift toggle, Backspace, Space, Enter, Clear
-- `OnTextCommitted` / `OnKeyPressed` event dispatchers
-- Fully visible and editable in the UMG Widget Designer
-- Place on a `WidgetComponent` in the world and interact with motion controllers
+#### Key Properties
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `MaxCharacters` | int32 | 128 | Maximum characters the keyboard buffer can hold |
+| `bStartShiftEnabled` | bool | false | Whether Shift starts active when the widget is constructed |
+
+#### Event Dispatchers (BlueprintAssignable)
+| Delegate | Signature | Description |
+|----------|-----------|-------------|
+| `OnKeyboardTextChanged` | `(const FString& Text)` | Fired on every key press — use to show live preview |
+| `OnKeyboardTextCommitted` | `(const FString& Text)` | Fired when Enter is pressed — text has already been written to the target box |
+
+#### Functions
+| Function | Type | Description |
+|----------|------|-------------|
+| `SetTargetTextBox(UEditableTextBox*)` | BlueprintCallable | Points the keyboard at a specific text box. Call this from the select button next to each text box. Loads the box's existing text into the keyboard buffer |
+| `GetTargetTextBox()` | BlueprintPure | Returns the currently targeted text box (may be null) |
+| `HasTargetTextBox()` | BlueprintPure | Returns true if a valid target is set |
+| `SetKeyboardText(FString)` | BlueprintCallable | Programmatically set the keyboard buffer |
+| `GetKeyboardText()` | BlueprintPure | Returns the current keyboard buffer string |
+| `ClearKeyboardText()` | BlueprintCallable | Clears the keyboard buffer |
+
+#### Blueprint Button-Based Target Selection
+
+Each text box in your widget has a small **select button** placed next to it. When the player presses that button with their motion controller, it calls `SetTargetTextBox`, routing all subsequent keyboard input to that specific box:
+
+1. Add a `Button` beside each `EditableTextBox` in your widget (e.g. a small "✎" or "Select" button)
+2. Bind the button's **`OnClicked`** event → call **`SetTargetTextBox`** on the keyboard reference, passing the corresponding text box
+3. Bind **`OnKeyboardTextCommitted`** once — on Enter, the committed text is written to whichever box was last selected and the buffer is cleared
+
+```
+[TextBox_ServerName] [▶ Select] → OnClicked → SetTargetTextBox(TextBox_ServerName)
+[TextBox_Password  ] [▶ Select] → OnClicked → SetTargetTextBox(TextBox_Password)
+VrKeyboard → OnKeyboardTextCommitted → [any extra confirm logic]
+```
+
+> No focus events or click-to-focus logic needed — the player explicitly picks which box to type into by pressing its select button.
+
+#### `AVrKeyboard` Actor
+| Component | Description |
+|-----------|-------------|
+| `Root` | Scene root |
+| `KeyboardWidgetComponent` | `WidgetComponent` hosting the `UVrKeyboardWidget` |
+
+Set `KeyboardWidgetClass` in Blueprint defaults to your `WBP_VrKeyboard` (or any `UVrKeyboardWidget`-derived widget). Drop `BP_VrKeyboard` into the level and it is ready to use.
 
 ### VR Pawn (CustomXrPawn)
 
@@ -416,6 +458,13 @@ To test VR multiplayer with two instances on the same machine:
 
 ## Development
 
+### Backlog & Known Issues
+
+See **[TODO.md](TODO.md)** for the full list of planned work, including:
+- Blueprint graph cleanup and comments
+- `Build.cs` and C++ optimisation pass
+- Net driver / session bug fixes (EOS overlay appearing in local mode, LAN session discovery)
+
 ### Building from Source
 
 1. Clone the repository to your project's Plugins folder
@@ -437,7 +486,8 @@ To test VR multiplayer with two instances on the same machine:
 - Seamless travel not fully supported — uses absolute travel for session creation
 - Primary testing on Windows — other platforms may need adjustments
 - Content directory assets still under development
-- VR keyboard not yet functional — placeholder WBP only, full Blueprint implementation coming in v0.5.1
+- Blueprint widget graphs (menus, host UI) not yet commented/cleaned up — planned for v0.6.1
+- Build.cs and C++ optimisation pass planned for v0.6.1
 
 ## License
 
