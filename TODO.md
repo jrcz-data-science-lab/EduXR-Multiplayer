@@ -42,6 +42,11 @@ Tracked items that need attention in future versions. These are non-blocking —
 - [ ] **Investigate:** Check that `FindSessions` search settings also set `bIsLanQuery = true` when in local mode
 - [ ] **Investigate:** Confirm both instances are using `OnlineSubsystemNull` and not accidentally falling back to EOS
 
+### Capsule Collision Rework
+- [ ] **Physics launch bug** — Objects colliding with the player capsule still cause the player to fly/move at high speed in certain situations. Investigate remaining `ECR_Block` responses and any residual impulse paths that bypass the overlap-only fix from v0.4.0
+- [ ] **Remove `PhysicsPushForce` / impulse-on-overlap** — The capsule's normal physics behaviour should be sufficient to push objects out of the way. The manual impulse applied in `OnCapsuleOverlap` is redundant and may be contributing to the launch bug — remove it and let the engine handle separation naturally
+- [ ] **Capsule follows HMD (real-world head tracking)** — Currently the capsule stays fixed at the pawn's world location and does not follow the player's physical head movement within the play space. The capsule's XY position should track the Camera (HMD) component's world XY each tick so the collision volume stays true to where the physical player is standing, not just the VR origin point
+
 ### Auto Net Driver Method (General Rework)
 - [ ] Review the full `ConfigureNetDriverForSubsystem` flow — make sure it only reconfigures when actually switching subsystems, not on every call
 - [ ] Ensure net driver config does not bleed EOS settings into a Null session
