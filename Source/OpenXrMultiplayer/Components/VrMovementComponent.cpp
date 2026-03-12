@@ -140,7 +140,7 @@ void UVrMovementComponent::TickComponent(float DeltaTime, ELevelTick TickTypez,
 		ECC_WorldStatic, Params);
 
 	// ── Debug: log ground state every ~1 second ──
-#if !UE_BUILD_SHIPPING
+#if 0 // !UE_BUILD_SHIPPING
 	GroundDebugTimer += DeltaTime;
 	if (GroundDebugTimer >= 1.f)
 	{

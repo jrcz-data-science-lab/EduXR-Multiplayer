@@ -4,6 +4,39 @@ All notable changes to the EduXR Multiplayer Plugin will be documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.1] - 2026-03-12 (Beta)
+
+### Status
+⚠️ **Beta Release** - Improved cross-device LAN discovery, EOS stability fixes, and terminal log cleanup. Active development.
+
+### Engine Support
+- ✅ **Unreal Engine 5.7.3** - Tested and working
+- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+
+### Tested On
+- Windows with UE 5.7.3
+- Cross-device LAN networking (Null subsystem) with explicit port and broadcast configuration
+- EOS networking stability (fixed unique ID casting crashes)
+
+### Added
+- **Explicit LAN Configuration** — Added `BeaconPort=15000` and `AllowRemoteLocalhost=true` to `DefaultEngine.ini` to ensure session discovery works across different physical devices on the same network.
+- **Improved LAN Search Parameters** — Added `PingBucketSize = 100` to `FindSessions` for more reliable discovery on local networks.
+- **Stability Guardrails** — Added `bIsDedicated = false` and `bUsesStats = false` to session settings to align with standard Null subsystem expectations.
+
+### Fixed
+- **EOS Session Crashes** — Fixed `GetTypeStatic() == NetId.GetType()` assertion failure in `HostSession`, `FindSessions`, and `JoinSession` by explicitly fetching the EOS `UserId` from the identity interface when in Online mode.
+- **EOS Login Overlay Spam** — Prevented the EOS login overlay from appearing when hosting or finding sessions in Local/LAN mode.
+- **Terminal Spam Cleanup** — Disabled high-frequency debug logs:
+  - VR transform replication RPC logs in `CustomXrPawn.cpp`.
+  - Height verification debug logs in `CustomXrPawn.cpp`.
+  - Ground state/overlap debug logs in `VrMovementComponent.cpp`.
+
+### Changed
+- `DefaultEngine.ini` updated with `MaxNetTickRate=60` and `NetServerMaxTickRate=60` for consistent networking across instances.
+- Updated `TODO.md` to reflect completed items and current testing status.
+
+---
+
 ## [0.6.0] - 2026-03-10 (Beta)
 
 ### Status

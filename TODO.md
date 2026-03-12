@@ -4,7 +4,21 @@ Tracked items that need attention in future versions. These are non-blocking —
 
 ---
 
-## 🔵 Code Quality & Optimisation *(planned for next update)*
+## 🟢 Fixed & Completed
+(Recent updates)
+
+### Auto Net Driver Method (General Rework)
+- [x] Review the full `ConfigureNetDriverForSubsystem` flow — make sure it only reconfigures when actually switching subsystems, not on every call
+- [x] Ensure net driver config does not bleed EOS settings into a Null session
+- [x] Subsystem selection is now explicitly handled via `ActiveNetworkMode` and `bUsingEOS` flags in session methods
+
+### EOS Login Triggered in Local/LAN Mode
+- [x] **Issue:** EOS login was triggering even in Local mode
+- [x] **Fix:** Added explicit `ActiveNetworkMode` checks. `LoginOnlineService` now early-outs if mode is `Local`. `HostSession` and `FindSessions` now skip EOS-specific identity calls when in `Local` mode.
+
+---
+
+## 🔵 Code Quality & Optimisation
 
 ### Blueprint Cleanup
 - [ ] Review all widget Blueprint graphs (WBP_HostMenu, WBP_FindMenu, WBP_MainMaster, WBP_Multiplayer, WBP_OnlineMode, WBP_XrMainMenu)
@@ -29,28 +43,16 @@ Tracked items that need attention in future versions. These are non-blocking —
 
 ## 🔴 Bug Fixes — Net Driver / Session *(needs investigation)*
 
-### EOS Login Triggered in Local/LAN Mode
-- [ ] **Issue:** When the player selects Local mode (Null subsystem) and has not signed in with Epic, hosting or finding a session still opens the EOS login overlay / triggers an EOS login attempt
-- [ ] **Expected:** Null subsystem path should never touch EOS login — the overlay should never appear in local mode
-- [ ] **Investigate:** Check `XrMpGameInstance` — confirm `bIsLoggedIntoEOS` gate is evaluated before any EOS SDK call in `HostSession` and `FindSessions`
-- [ ] **Fix:** Add an early-out guard: if `bIsLan == true` or `bIsLoggedIntoEOS == false`, skip all EOS subsystem calls entirely
-
 ### LAN Session Not Discoverable (Null Subsystem)
-- [ ] **Issue:** After hosting a session with the Null subsystem (local mode), `FindSessions` does not return the hosted session — needs more testing to confirm scope
-- [ ] **Steps to reproduce:** Host (Null, LAN=true) on Instance 1 → FindSessions (Null, LAN=true) on Instance 2 on the same machine/network → results array is empty
-- [ ] **Investigate:** Confirm `bIsLan` flag is passed correctly all the way through to `SessionSettings.bIsLANMatch = true` in both host and search
-- [ ] **Investigate:** Check that `FindSessions` search settings also set `bIsLanQuery = true` when in local mode
-- [ ] **Investigate:** Confirm both instances are using `OnlineSubsystemNull` and not accidentally falling back to EOS
+- [x] **Investigate:** Analyzed `OpenXrMp.log`. Discovery fails with 0 results despite `bIsLANMatch=true`.
+- [ ] **Currently Testing:** Refined `FOnlineSessionSettings` and `FOnlineSessionSearch` in `XrMpGameInstance.cpp` for more standard LAN behavior (`bIsDedicated`, `bUsesStats`, `PingBucketSize`).
+- [x] **Fix:** Updated `DefaultEngine.ini` with `NetServerMaxTickRate=60`.
+- [ ] **Steps to reproduce:** Host (Null, LAN=true) on Instance 1 → FindSessions (Null, LAN=true) on Instance 2 on different devices.
 
 ### Capsule Collision Rework
 - [ ] **Physics launch bug** — Objects colliding with the player capsule still cause the player to fly/move at high speed in certain situations. Investigate remaining `ECR_Block` responses and any residual impulse paths that bypass the overlap-only fix from v0.4.0
 - [ ] **Remove `PhysicsPushForce` / impulse-on-overlap** — The capsule's normal physics behaviour should be sufficient to push objects out of the way. The manual impulse applied in `OnCapsuleOverlap` is redundant and may be contributing to the launch bug — remove it and let the engine handle separation naturally
 - [ ] **Capsule follows HMD (real-world head tracking)** — Currently the capsule stays fixed at the pawn's world location and does not follow the player's physical head movement within the play space. The capsule's XY position should track the Camera (HMD) component's world XY each tick so the collision volume stays true to where the physical player is standing, not just the VR origin point
-
-### Auto Net Driver Method (General Rework)
-- [ ] Review the full `ConfigureNetDriverForSubsystem` flow — make sure it only reconfigures when actually switching subsystems, not on every call
-- [ ] Ensure net driver config does not bleed EOS settings into a Null session
-- [ ] Consider making subsystem selection fully explicit (passed in as a parameter) rather than inferred from internal state flags
 
 ---
 
@@ -62,5 +64,5 @@ Tracked items that need attention in future versions. These are non-blocking —
 
 ---
 
-*Last updated: 2026-03-10*
+*Last updated: 2026-03-12*
 

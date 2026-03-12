@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 0,
-	"VersionName": "0.5.0",
+	"VersionName": "0.6.0",
 	"FriendlyName": "OpenXrMultiplayer",
 	"Description": "A multiplayer template plugin that is made to implement into OpenXR. Made for JRCZ",
 	"Category": "JRCZ Multiplayer Template",

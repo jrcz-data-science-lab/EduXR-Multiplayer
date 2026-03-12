@@ -1,11 +1,10 @@
 // OpenXrMultiplayer.Build.cs — Build Configuration for the EduXR Multiplayer Plugin
 //
 // Defines module dependencies required by the plugin:
-//  - Networking: Sockets, Networking, NetCore for multiplayer transport
-//  - Online: OnlineSubsystem, OnlineSubsystemEOS for session management
-//  - XR: OpenXR, HeadMountedDisplay, XRBase for VR tracking
+//  - Online: OnlineSubsystem + OnlineSubsystemUtils for session management
+//  - XR: XRBase for MotionControllerComponent
 //  - Input: EnhancedInput for VR controller input
-//  - UI: UMG for WidgetInteractionComponent (in-world UI pointing)
+//  - UI: UMG for WidgetInteractionComponent & UMG widgets (in-world UI)
 
 using UnrealBuildTool;
 
@@ -15,54 +14,30 @@ public class OpenXrMultiplayer : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicIncludePaths.AddRange(
-			new string[]
-			{
-			}
-		);
-
-		PrivateIncludePaths.AddRange(
-			new string[]
-			{
-			}
-		);
-
-		// Public dependencies — modules that consumers of this plugin also need.
-		// These are exposed in public headers so dependents must link against them.
+		// Public dependencies — exposed in public headers so dependents must link against them.
 		PublicDependencyModuleNames.AddRange(
 			new[]
 			{
-				"Core",
-				"Sockets",              // Low-level socket API
-				"Networking",           // Network transport layer
-				"NetCore",              // Core networking types and utilities
-				"OnlineSubsystem",      // Abstract online subsystem interface
-				"OnlineSubsystemEOS",   // Epic Online Services subsystem
-				"OnlineSubsystemUtils", // Helper utilities for online subsystems
-				"OpenXR",               // OpenXR runtime integration
-				"HeadMountedDisplay",   // HMD tracking and rendering API
-				"XRBase",               // Base XR types (MotionControllerComponent etc.)
-				"EnhancedInput",        // Enhanced Input System for VR controllers
-				"UMG",                  // Widget Interaction (UWidgetInteractionComponent)
-				"InputCore",            // EKeys definitions (e.g. EKeys::LeftMouseButton)
+				"Core",                 // Core types used everywhere
+				"OnlineSubsystem",      // IOnlineSubsystem, IOnlineSessionPtr (XrMpGameInstance.h)
+				"OnlineSubsystemUtils", // OnlineSubsystemUtils.h helpers (XrMpGameInstance.h)
+				"XRBase",               // UMotionControllerComponent (CustomXrPawn.h)
+				"EnhancedInput",        // UInputAction, FInputActionValue (CustomXrPawn.h)
+				"UMG",					// UWidgetInteractionComponent, UUserWidget, UEditableTextBox (public headers)
+				"HeadMountedDisplay"	// UMotionControllerComponent (public headers)
 			}
 		);
 
-		// Private dependencies — only used internally by the plugin.
-		// Not exposed to consumers of this module.
+		// Private dependencies — only used internally in .cpp files.
 		PrivateDependencyModuleNames.AddRange(
 			new[]
 			{
 				"CoreUObject",  // UObject system and reflection
-				"Engine",       // Core engine classes (AActor, UWorld etc.)
-				"Slate",        // Low-level UI framework
-				"SlateCore",    // Slate rendering and widgets
-			}
-		);
-
-		DynamicallyLoadedModuleNames.AddRange(
-			new string[]
-			{
+				"Engine",       // Core engine classes (AActor, UWorld, UGameEngine etc.)
+				"Slate",        // Slate widgets (SButton, SBorder etc. in VrKeyboardWidget.cpp)
+				"SlateCore",    // Slate rendering primitives
+				"NetCore",      // DOREPLIFETIME macros (Net/UnrealNetwork.h in CustomXrPawn.cpp)
+				"InputCore",    // EKeys definitions (EKeys::LeftMouseButton in CustomXrPawn.cpp)
 			}
 		);
 	}

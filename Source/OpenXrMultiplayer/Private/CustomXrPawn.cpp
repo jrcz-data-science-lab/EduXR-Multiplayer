@@ -12,6 +12,8 @@
 #include "Components/WidgetInteractionComponent.h"
 #include "EnhancedInputComponent.h"
 #include "MotionControllerComponent.h"
+#include "Components/SphereComponent.h"
+#include "Components/WidgetComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "OpenXrMultiplayer/Components/VrMovementComponent.h"
 
@@ -133,7 +135,6 @@ ACustomXrPawn::ACustomXrPawn()
 
 	vrMovementComponent = CreateDefaultSubobject<UVrMovementComponent>(TEXT("VrMovementComponent"));
 	
-	
 	WidgetInteractionLeft->TraceChannel = ECollisionChannel::ECC_Visibility;
 	WidgetInteractionLeft->InteractionDistance = 500.f;
 	WidgetInteractionLeft->bShowDebug = true;   // debug line while setting up
@@ -184,6 +185,7 @@ void ACustomXrPawn::BeginPlay()
 
 		float HalfHeight = CapsuleCollider->GetScaledCapsuleHalfHeight();
 
+		/**
 		// Log BEFORE setting — did the constructor offset survive?
 		UE_LOG(LogTemp, Warning, TEXT("VR_HEIGHT_DEBUG | %s | BEFORE reinforcement:"), *GetName());
 		UE_LOG(LogTemp, Warning, TEXT("  ActorLocation     = %s"), *GetActorLocation().ToString());
@@ -194,7 +196,9 @@ void ACustomXrPawn::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("  Camera RelativeZ  = %.1f"), Camera->GetRelativeLocation().Z);
 		UE_LOG(LogTemp, Warning, TEXT("  Camera WorldZ     = %.1f"), Camera->GetComponentLocation().Z);
 		UE_LOG(LogTemp, Warning, TEXT("  Camera bLockToHmd = %s"), Camera->bLockToHmd ? TEXT("true") : TEXT("false"));
+		*/
 
+		/**
 		VrOrigin->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight));
 
 		// Log AFTER setting
@@ -204,6 +208,8 @@ void ACustomXrPawn::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("  Camera WorldZ     = %.1f"), Camera->GetComponentLocation().Z);
 		UE_LOG(LogTemp, Warning, TEXT("  Expected: VrOrigin should be at ActorZ - %.1f = %.1f"),
 			HalfHeight, GetActorLocation().Z - HalfHeight);
+		*/
+		VrOrigin->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight));
 	}
 
 
@@ -271,64 +277,6 @@ void ACustomXrPawn::Tick(float DeltaTime)
 			VrOrigin->SetRelativeLocation(FVector(0.f, 0.f, DesiredZ));
 		}
 	}
-	
-	// ── Network Debug (throttled to every 2 seconds) ──
-#if !UE_BUILD_SHIPPING
-	DebugTimer += DeltaTime;
-	if (DebugTimer >= 2.f)
-	{
-		DebugTimer = 0.f;
-		
-		FString NetModeStr;
-		switch (GetNetMode())
-		{
-		case NM_Standalone: NetModeStr = TEXT("Standalone"); break;
-		case NM_DedicatedServer: NetModeStr = TEXT("DedicatedServer"); break;
-		case NM_ListenServer: NetModeStr = TEXT("ListenServer"); break;
-		case NM_Client: NetModeStr = TEXT("Client"); break;
-		default: NetModeStr = TEXT("Unknown"); break;
-		}
-
-		FString RoleStr;
-		switch (GetLocalRole())
-		{
-		case ROLE_Authority: RoleStr = TEXT("Authority"); break;
-		case ROLE_AutonomousProxy: RoleStr = TEXT("AutonomousProxy"); break;
-		case ROLE_SimulatedProxy: RoleStr = TEXT("SimulatedProxy"); break;
-		default: RoleStr = TEXT("None"); break;
-		}
-
-		UE_LOG(LogTemp, Log, TEXT("PAWN DEBUG | %s | Net=%s | Role=%s | Local=%s | Auth=%s | Pos=%s"),
-			*GetName(), *NetModeStr, *RoleStr,
-			IsLocallyControlled() ? TEXT("Y") : TEXT("N"),
-			HasAuthority() ? TEXT("Y") : TEXT("N"),
-			*GetActorLocation().ToString());
-
-		if (GEngine && IsLocallyControlled())
-		{
-			float CamWorldZ = Camera ? Camera->GetComponentLocation().Z : 0.f;
-			float OriginWorldZ = VrOrigin ? VrOrigin->GetComponentLocation().Z : 0.f;
-			float OriginRelZ = VrOrigin ? VrOrigin->GetRelativeLocation().Z : 0.f;
-			float ActorZ = GetActorLocation().Z;
-
-			GEngine->AddOnScreenDebugMessage(
-				(int32)GetUniqueID(), 2.f, FColor::White,
-				FString::Printf(TEXT("%s | %s | %s | Grounded=%s"),
-					*GetName(), *NetModeStr, *RoleStr,
-					vrMovementComponent && vrMovementComponent->bIsGrounded ? TEXT("Y") : TEXT("N")));
-
-			GEngine->AddOnScreenDebugMessage(
-				(int32)GetUniqueID() + 1, 2.f, FColor::Yellow,
-				FString::Printf(TEXT("HEIGHT | ActorZ=%.0f | VrOriginRelZ=%.0f | VrOriginWorldZ=%.0f | CamWorldZ=%.0f | CamAboveFloor=%.0f"),
-					ActorZ, OriginRelZ, OriginWorldZ, CamWorldZ, CamWorldZ - (ActorZ + OriginRelZ)));
-
-			UE_LOG(LogTemp, Warning,
-				TEXT("VR_HEIGHT_LIVE | ActorZ=%.1f | VrOriginRelZ=%.1f | VrOriginWorldZ=%.1f | CamWorldZ=%.1f | CamRelZ=%.1f"),
-				ActorZ, OriginRelZ, OriginWorldZ, CamWorldZ,
-				Camera ? Camera->GetRelativeLocation().Z : 0.f);
-		}
-	}
-#endif
 
 	if (IsLocallyControlled())
 	{
@@ -348,7 +296,6 @@ void ACustomXrPawn::Tick(float DeltaTime)
 		ApplyReplicatedVRTransforms();
 	}
 }
-
 
 // ═══════════════════════════════════════════════════
 // VR Transform Capture (local pawn only)
@@ -541,8 +488,10 @@ void ACustomXrPawn::ServerUpdateVRTransforms_Implementation(
 	FTransform InLeftHand,
 	FTransform InRightHand)
 {
+	/**
 	UE_LOG(LogTemp, Warning, TEXT("SERVER RPC | Pawn=%s | From=%s"), *GetName(), 
 	   GetNetOwningPlayer() ? *GetNetOwningPlayer()->GetName() : TEXT("NULL"));
+	*/
 	
 	Rep_HeadTransform = InHead;
 	Rep_LeftHandTransform = InLeftHand;

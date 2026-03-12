@@ -2,7 +2,7 @@
 
 A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem, with full VR head and hand tracking replication.
 
-> **⚠️ Status:** Beta (v0.6.0) - Fully functional C++ VR virtual keyboard with button-driven target text box selection. Blueprint-exposed session search results, world-space UI server browser, physics collision rework, gravity/jump system, and depenetration resolution.
+> **⚠️ Status:** Beta (v0.6.1) - Improved LAN discovery, EOS stability fixes, and terminal log cleanup. Fully functional C++ VR virtual keyboard with button-driven target text box selection. Blueprint-exposed session search results, world-space UI server browser, physics collision rework, gravity/jump system, and depenetration resolution.
 
 ## Features
 
@@ -78,8 +78,8 @@ A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences
 
 ## Requirements
 
-- **Unreal Engine:** 5.7.2 (tested and working)
-- **Other Versions:** May work on UE 5.5+, but only tested on 5.7.2
+- **Unreal Engine:** 5.7.3 (tested and working)
+- **Other Versions:** May work on UE 5.5+, but only tested on 5.7.3
 - **Platform:** Windows (primary platform, other platforms untested)
 - **Epic Online Services (EOS) SDK:** Optional — for online multiplayer features
 
@@ -478,7 +478,7 @@ See **[TODO.md](TODO.md)** for the full list of planned work, including:
 - Plugin is still in active development
 - Not all features are complete
 - Some Content assets are still being created
-- Only tested on UE 5.7.2 (other versions may have compatibility issues)
+- Only tested on UE 5.7.3 (other versions may have compatibility issues)
 - PIE multiplayer not functional — use standalone builds
 
 **Functional Limitations:**

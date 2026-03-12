@@ -21,6 +21,25 @@ class FOnlineSessionSettings;
 class FOnlineSessionSearch;
 
 /**
+ * Explicit network mode — set by the player from the mode-selection screen.
+ *
+ * Local:  Uses OnlineSubsystemNull (LAN / same-network IP).
+ *         EOS is never loaded, no login overlay, no internet required.
+ *
+ * Online: Uses OnlineSubsystemEOS (Epic Online Services P2P).
+ *         Requires an explicit LoginOnlineService() call to authenticate.
+ */
+UENUM(BlueprintType)
+enum class EXrNetworkMode : uint8
+{
+	/** LAN / local networking via OnlineSubsystemNull — no EOS */
+	Local   UMETA(DisplayName = "Local (LAN)"),
+
+	/** Online P2P via OnlineSubsystemEOS — requires EOS login */
+	Online  UMETA(DisplayName = "Online (EOS)")
+};
+
+/**
  * Blueprint-friendly struct representing a single session search result.
  * Exposes all the important session info so Blueprints can build custom
  * server browser widgets without touching C++.
@@ -61,25 +80,14 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnXrMpFindSessionsComplete, const 
 /**
  * UXrMpGameInstance - Educational XR Multiplayer Game Instance
  * 
- * This class manages all multiplayer networking functionality for the EduXR plugin.
- * It provides a unified interface for:
- *  - Session management (Create, Find, Join, Destroy)
- *  - Network subsystem switching (EOS vs Null/LAN)
- *  - Automatic net driver configuration
- *  - User authentication (EOS login)
- * 
- * Key Features:
- *  - Dual-mode networking: EOS (online P2P) and Null subsystem (LAN/IP)
- *  - Automatic subsystem selection: Uses LAN by default, EOS if logged in
- *  - Seamless network mode switching without code changes
- *  - Support for both standalone and packaged builds
- * 
- * Usage:
- *  1. Create a Blueprint based on this class or use directly
- *  2. Call HostSession() to create a multiplayer session
- *  3. Call FindSessions() to search for available sessions
- *  4. Call JoinSession() to connect to a found session
- *  5. Optional: Call LoginOnlineService() to switch to EOS networking
+ * Networking is fully explicit:
+ *  - Call SetNetworkMode(Local)  when the player picks "Local"
+ *  - Call SetNetworkMode(Online) when the player picks "Online"
+ *  - In Online mode, call LoginOnlineService() to authenticate with EOS
+ *  - HostSession / FindSessions / JoinSession use whichever mode is active
+ *
+ * EOS is NEVER loaded unless the player explicitly selects Online mode
+ * and calls LoginOnlineService(). No auto-login, no overlay in Local mode.
  */
 UCLASS()
 class OPENXRMULTIPLAYER_API UXrMpGameInstance : public UGameInstance
@@ -104,6 +112,36 @@ public:
 	 * Destroys the current session before shutting down
 	 */
 	virtual void Shutdown() override;
+
+	// ─────────────────────────────────────────────
+	// Network Mode — call from the mode-selection screen
+	// ─────────────────────────────────────────────
+
+	/**
+	 * Set the networking mode. Call this from Blueprint when the player
+	 * picks "Local" or "Online" on the mode-selection screen.
+	 *
+	 * Local:  Switches SessionInterface to OnlineSubsystemNull.
+	 *         Configures IpNetDriver. EOS is not touched at all.
+	 *
+	 * Online: Switches SessionInterface to OnlineSubsystemEOS.
+	 *         Configures NetDriverEOSBase. You must still call
+	 *         LoginOnlineService() before hosting / finding sessions.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer")
+	void SetNetworkMode(EXrNetworkMode NewMode);
+
+	/** Returns the current network mode */
+	UFUNCTION(BlueprintPure, Category = "XR Multiplayer")
+	EXrNetworkMode GetNetworkMode() const { return ActiveNetworkMode; }
+
+	/** Returns true if the player has successfully logged into EOS */
+	UFUNCTION(BlueprintPure, Category = "XR Multiplayer")
+	bool IsLoggedIntoEOS() const { return bIsLoggedIntoEOS; }
+
+	// ─────────────────────────────────────────────
+	// Session Management
+	// ─────────────────────────────────────────────
 
 	/**
 	 * Host a new multiplayer session
@@ -139,14 +177,21 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer")
 	void DestroyCurrentSession();
 
+	// ─────────────────────────────────────────────
+	// EOS Login — only works in Online mode
+	// ─────────────────────────────────────────────
+
 	/**
-	 * Explicitly login to Epic Online Services
-	 * 
-	 * Switches the multiplayer subsystem to EOS for online P2P networking.
-	 * If already logged in via auto-login, immediately switches to EOS networking.
+	 * Login to Epic Online Services.
+	 * Only call this after SetNetworkMode(Online).
+	 * In Local mode this is a no-op.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer")
 	void LoginOnlineService();
+
+	// ─────────────────────────────────────────────
+	// Properties
+	// ─────────────────────────────────────────────
 
 	/**
 	 * Optional custom username to display in multiplayer sessions
@@ -246,6 +291,12 @@ protected:
 	                                 const FOnlineSessionSearchResult& InviteResult);
 
 private:
+	/** The explicitly chosen network mode — defaults to Local */
+	EXrNetworkMode ActiveNetworkMode = EXrNetworkMode::Local;
+
+	/** True after a successful EOS login in Online mode */
+	bool bIsLoggedIntoEOS = false;
+
 	/**
 	 * Interface to the online session system
 	 * Can be EOS subsystem (online P2P) or Null subsystem (LAN/local networking)
@@ -279,33 +330,20 @@ private:
 	FString PendingSessionName;
 
 	/**
-	 * True if currently logged into EOS and networking should use EOS
-	 * False if using LAN/Null subsystem or not logged in
+	 * Switch SessionInterface + net driver to the given subsystem.
+	 * Clears and rebinds all session delegates.
+	 * @param SubsystemName  "Null" or "EOS"
 	 */
-	bool bIsLoggedIntoEOS = false;
-	
-	/**
-	 * True if user explicitly called LoginOnlineService()
-	 * False if EOS auto-logged in or no login attempted
-	 * Used to distinguish between explicit and automatic login
-	 */
-	bool bLoginExplicitlyRequested = false;
+	void ActivateSubsystem(const FName& SubsystemName);
 
 	/**
-	 * Get the active online subsystem based on current login state
-	 * Returns EOS if logged in, otherwise Null subsystem for LAN/local networking
-	 * 
-	 * @return The active online subsystem (EOS or Null)
-	 */
-	IOnlineSubsystem* GetActiveOnlineSubsystem();
-	
-	/**
-	 * Configure the net driver for the active online subsystem
-	 * Switches between IpNetDriver (Null/LAN) and NetDriverEOSBase (EOS P2P)
-	 * 
-	 * @param bUsingNullSubsystem True to configure for Null subsystem, false for EOS
+	 * Configure the net driver for the given subsystem.
+	 * @param bUsingNullSubsystem True → IpNetDriver, False → NetDriverEOSBase
 	 */
 	void ConfigureNetDriverForSubsystem(bool bUsingNullSubsystem);
+
+	/** Bind all session delegates to the current SessionInterface */
+	void BindSessionDelegates();
 
 	/**
 	 * Cached Blueprint-friendly session results from the last search.
