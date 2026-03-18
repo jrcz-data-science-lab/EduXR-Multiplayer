@@ -16,21 +16,29 @@ Tracked items that need attention in future versions. These are non-blocking —
 - [x] **Issue:** EOS login was triggering even in Local mode
 - [x] **Fix:** Added explicit `ActiveNetworkMode` checks. `LoginOnlineService` now early-outs if mode is `Local`. `HostSession` and `FindSessions` now skip EOS-specific identity calls when in `Local` mode.
 
+### Network Mode UI Flow
+- [x] Added `EXrNetworkMode::None` as the default startup state
+- [x] Updated `ActiveNetworkMode` default to `None` so UI flow starts neutral and only commits to `Local`/`Online` after explicit player choice
+
+### Build/Compile Warning Cleanup
+- [x] Added missing `EnhancedInput` plugin dependency in `OpenXrMultiplayer.uplugin`
+- [x] Fixed `UGameInstance::JoinSession` hidden overload warnings by exposing base overloads in `XrMpGameInstance.h`
+
 ---
 
 ## 🔵 Code Quality & Optimisation
 
 ### Blueprint Cleanup
-- [ ] Review all widget Blueprint graphs (WBP_HostMenu, WBP_FindMenu, WBP_MainMaster, WBP_Multiplayer, WBP_OnlineMode, WBP_XrMainMenu)
-- [ ] Reroute messy node graphs so they read left-to-right cleanly
-- [ ] Add comments/comment boxes to every non-obvious graph section
-- [ ] Remove any dead nodes or unused variables left over from iteration
+- [x] Review all widget Blueprint graphs (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`)
+- [x] Reroute messy node graphs so they read left-to-right cleanly
+- [x] Add comments/comment boxes to every non-obvious graph section
+- [x] Remove any dead nodes or unused variables left over from iteration
 
 ### Build.cs Optimisation
-- [ ] Audit `OpenXrMultiplayer.Build.cs` — list every module in `PublicDependencyModuleNames` and `PrivateDependencyModuleNames`
-- [ ] Remove any module that is not directly referenced in plugin C++ headers or source files
-- [ ] Move modules only used in `.cpp` files from `Public` → `Private` dependencies
-- [ ] Verify the build still compiles and no new linker errors appear after trimming
+- [x] Audit `OpenXrMultiplayer.Build.cs` — list every module in `PublicDependencyModuleNames` and `PrivateDependencyModuleNames`
+- [x] Remove any module that is not directly referenced in plugin C++ headers or source files
+- [x] Move modules only used in `.cpp` files from `Public` → `Private` dependencies
+- [x] Verify the build still compiles and no new linker errors appear after trimming
 
 ### C++ Code Optimisation
 - [ ] General readability pass on all plugin `.h` and `.cpp` files
@@ -61,8 +69,9 @@ Tracked items that need attention in future versions. These are non-blocking —
 - [ ] Add a `WBP_VrKeyboard` Blueprint wrapper widget for the `UVrKeyboardWidget` C++ class so designers can see a preview in the UMG designer (even if the Slate content is built in C++)
 - [ ] Add a dedicated `Content/UI/Virtual/WBP_VrKeyboard.uasset` with the select-button layout pre-wired as a reference implementation
 - [ ] Document the full keyboard integration flow with screenshots in `README.md` once the widget layout is finalised
+- [ ] Add a Niagara-based VR cursor at each controller aim point so players can see where the `WidgetInteractionComponent` is pointing when interacting with world-space UI
 
 ---
 
-*Last updated: 2026-03-12*
+*Last updated: 2026-03-18 (v0.6.2 prep)*
 

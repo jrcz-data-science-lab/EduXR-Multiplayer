@@ -1,6 +1,7 @@
 ﻿#include "VrKeyboardWidget.h"
 
 #include "Components/EditableTextBox.h"
+#include "Styling/CoreStyle.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
@@ -112,6 +113,8 @@ TSharedRef<SWidget> UVrKeyboardWidget::BuildKeyboardWidget()
 	};
 
 	return SNew(SBorder)
+		.BorderImage(FCoreStyle::Get().GetBrush("NoBorder"))
+		.BorderBackgroundColor(FLinearColor::Transparent)
 		.Padding(8.0f)
 		[
 			SNew(SVerticalBox)

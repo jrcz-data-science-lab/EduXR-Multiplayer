@@ -4,6 +4,31 @@ All notable changes to the EduXR Multiplayer Plugin will be documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.2] - 2026-03-18 (Beta)
+
+### Status
+⚠️ **Beta Release** - UI flow and code-quality pass. Explicit startup mode (`None`), Blueprint graph cleanup, Build.cs dependency trim, and warning cleanup.
+
+### Added
+- **Explicit Neutral Startup Mode** — `EXrNetworkMode::None` is now the default startup state so menus begin in a neutral state before the player chooses Local or Online.
+
+### Changed
+- **Blueprint Menu Cleanup Completed** — widget graphs were cleaned up for readability (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`): rerouted execution flow, added comments, and removed dead nodes/unused variables.
+- **Build.cs Dependency Optimisation** — removed unused modules from `OpenXrMultiplayer.Build.cs` after direct include/reference audit:
+  - Removed `XRBase`
+  - Removed `NetCore`
+- **Version Metadata** — plugin `VersionName` updated to `0.6.2`.
+
+### Fixed
+- **Build Warning: Missing plugin dependency** — added `EnhancedInput` to `OpenXrMultiplayer.uplugin` plugin dependencies to match module usage.
+- **Compiler Warnings C4263/C4264** — fixed hidden overload warnings in `UXrMpGameInstance` by exposing `UGameInstance::JoinSession` overloads.
+
+### Verification
+- Rebuilt `OpenXrMpEditor` (Win64 Development) after dependency trimming and warning fixes — build succeeded with no new linker errors.
+
+### Notes
+- Capsule collision rework remains under active testing and is intentionally excluded from this release notes section.
+
 ## [0.6.1] - 2026-03-12 (Beta)
 
 ### Status

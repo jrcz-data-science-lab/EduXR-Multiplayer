@@ -47,6 +47,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category="VR")
 	UCameraComponent* GetVRCamera() const { return Camera; }
 
+	/** Get the VR origin scene component */
+	UFUNCTION(BlueprintCallable, Category="VR")
+	USceneComponent* GetVrOrigin() const { return VrOrigin; }
+
+	/** Get the collision capsule used as pawn root */
+	UFUNCTION(BlueprintCallable, Category="VR")
+	UCapsuleComponent* GetCapsuleCollider() const { return CapsuleCollider; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaTime) override;
@@ -209,11 +217,6 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerJump();
 	
-	
-	/** How much force to apply when pushing physics objects (in Newtons) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="VR|Collision")
-	float PhysicsPushForce = 500.f;
-
 private:
 	// ─────────────────────────────────────────────
 	// Internal Helpers
@@ -250,20 +253,6 @@ private:
 	void OnLeftTriggerReleased(const FInputActionValue& Value);
 	void OnRightTriggerPressed(const FInputActionValue& Value);
 	void OnRightTriggerReleased(const FInputActionValue& Value);
-	/**
-	 * Called when the capsule overlaps a physics object.
-	 * Applies an impulse to push the object away from the player,
-	 * simulating the old "bump away" behavior without blocking movement.
-	 */
-	UFUNCTION()
-	void OnCapsuleOverlap(
-		UPrimitiveComponent* OverlappedComp,
-		AActor* OtherActor,
-		UPrimitiveComponent* OtherComp,
-		int32 OtherBodyIndex,
-		bool bFromSweep,
-		const FHitResult& SweepResult);
-	
 
 #if !UE_BUILD_SHIPPING
 	/** Debug timer for throttled network state logging (per-pawn, not static) */

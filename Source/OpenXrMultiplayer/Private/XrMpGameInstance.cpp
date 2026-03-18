@@ -30,7 +30,7 @@ void UXrMpGameInstance::Init()
 {
 	Super::Init();
 
-	ActiveNetworkMode = EXrNetworkMode::Local;
+	ActiveNetworkMode = EXrNetworkMode::None;
 	bIsLoggedIntoEOS = false;
 
 	ActivateSubsystem(FName(TEXT("Null")));

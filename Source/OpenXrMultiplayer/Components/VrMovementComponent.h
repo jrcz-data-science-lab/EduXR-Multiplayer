@@ -63,7 +63,7 @@ public:
 
 	/** Cooldown duration in seconds before snap turn auto-resets even without neutral input */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
-	float SnapTurnCooldown = 0.3f;
+	float SnapTurnCooldown = 0.02f;
 
 	/** Thumbstick deadzone for snap turn — input below this threshold is ignored */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
@@ -141,6 +141,13 @@ public:
 	UPROPERTY(EditAnywhere, Category="Movement")
 	float GroundTraceDistance = 15.f;
 
+	/**
+	 * Maximum XY distance (cm) the capsule is allowed to recenter toward the HMD in a single tick.
+	 * Clamps tracking spikes so a bad frame cannot launch/teleport the pawn.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|VR")
+	float MaxCapsuleRecenterPerTick = 25.f;
+
 protected:
 	/** Called on game start — caches a reference to the owning CustomXrPawn */
 	virtual void BeginPlay() override;
@@ -154,6 +161,12 @@ protected:
 	 * Called every tick before ground detection.
 	 */
 	void ResolvePenetration(UCapsuleComponent* Capsule, float HalfHeight, float Radius);
+
+	/**
+	 * Recenter the capsule to follow the HMD XY position for room-scale movement.
+	 * Keeps camera world position stable by offsetting VrOrigin by the applied actor delta.
+	 */
+	void SyncCapsuleToHmdXY();
 
 private:
 #if !UE_BUILD_SHIPPING

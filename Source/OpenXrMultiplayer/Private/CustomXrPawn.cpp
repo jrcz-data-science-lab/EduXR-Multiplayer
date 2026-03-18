@@ -12,8 +12,6 @@
 #include "Components/WidgetInteractionComponent.h"
 #include "EnhancedInputComponent.h"
 #include "MotionControllerComponent.h"
-#include "Components/SphereComponent.h"
-#include "Components/WidgetComponent.h"
 #include "Net/UnrealNetwork.h"
 #include "OpenXrMultiplayer/Components/VrMovementComponent.h"
 
@@ -76,14 +74,14 @@ ACustomXrPawn::ACustomXrPawn()
 	 *      collision forces that launch the player at insane speeds.
 	 *
 	 * ECR_Overlap solves both: the capsule sweep passes through physics objects
-	 * (no blocking hit), but we still get overlap events so we can push
-	 * objects away with an impulse in the overlap callback.
+	 * (no blocking hit), without adding manual impulse forces that can create launch bugs.
 	 *
 	 * ECR_Ignore would also prevent blocking, but then we can't detect
 	 * overlaps at all — the player would ghost through everything.
 	 */
 	CapsuleCollider->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Overlap);
 	CapsuleCollider->SetCollisionResponseToChannel(ECC_Destructible, ECR_Overlap);
+	CapsuleCollider->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
 	CapsuleCollider->SetGenerateOverlapEvents(true);
 
 	SetRootComponent(CapsuleCollider);
@@ -123,15 +121,19 @@ ACustomXrPawn::ACustomXrPawn()
 
 	HeadMountedDisplayMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("HMD Mesh"));
 	HeadMountedDisplayMesh->SetupAttachment(Camera);
+	HeadMountedDisplayMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	HandLeft = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HandLeft"));
 	HandLeft->SetupAttachment(MotionControllerLeft);
+	HandLeft->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	HandRight = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HandRight"));
 	HandRight->SetupAttachment(MotionControllerRight);
+	HandRight->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	PlayerMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("PlayerMesh"));
 	PlayerMesh->SetupAttachment(VrOrigin);
+	PlayerMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	vrMovementComponent = CreateDefaultSubobject<UVrMovementComponent>(TEXT("VrMovementComponent"));
 	
@@ -178,10 +180,8 @@ void ACustomXrPawn::BeginPlay()
 		CapsuleCollider->SetCapsuleSize(20.f, 88.f);
 		CapsuleCollider->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Overlap);
 		CapsuleCollider->SetCollisionResponseToChannel(ECC_Destructible, ECR_Overlap);
+		CapsuleCollider->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Overlap);
 		CapsuleCollider->SetGenerateOverlapEvents(true);
-
-		// Bind overlap callback to push physics objects when the player walks into them
-		CapsuleCollider->OnComponentBeginOverlap.AddDynamic(this, &ACustomXrPawn::OnCapsuleOverlap);
 
 		float HalfHeight = CapsuleCollider->GetScaledCapsuleHalfHeight();
 
@@ -199,7 +199,9 @@ void ACustomXrPawn::BeginPlay()
 		*/
 
 		/**
-		VrOrigin->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight));
+		FVector VrOriginRelative = VrOrigin->GetRelativeLocation();
+		VrOriginRelative.Z = -HalfHeight;
+		VrOrigin->SetRelativeLocation(VrOriginRelative);
 
 		// Log AFTER setting
 		UE_LOG(LogTemp, Warning, TEXT("VR_HEIGHT_DEBUG | %s | AFTER reinforcement:"), *GetName());
@@ -209,7 +211,9 @@ void ACustomXrPawn::BeginPlay()
 		UE_LOG(LogTemp, Warning, TEXT("  Expected: VrOrigin should be at ActorZ - %.1f = %.1f"),
 			HalfHeight, GetActorLocation().Z - HalfHeight);
 		*/
-		VrOrigin->SetRelativeLocation(FVector(0.f, 0.f, -HalfHeight));
+		FVector VrOriginRelative = VrOrigin->GetRelativeLocation();
+		VrOriginRelative.Z = -HalfHeight;
+		VrOrigin->SetRelativeLocation(VrOriginRelative);
 	}
 
 
@@ -272,9 +276,11 @@ void ACustomXrPawn::Tick(float DeltaTime)
 	if (CapsuleCollider && VrOrigin)
 	{
 		float DesiredZ = -CapsuleCollider->GetScaledCapsuleHalfHeight();
-		if (!FMath::IsNearlyEqual(VrOrigin->GetRelativeLocation().Z, DesiredZ, 0.1f))
+		FVector VrOriginRelative = VrOrigin->GetRelativeLocation();
+		if (!FMath::IsNearlyEqual(VrOriginRelative.Z, DesiredZ, 0.1f))
 		{
-			VrOrigin->SetRelativeLocation(FVector(0.f, 0.f, DesiredZ));
+			VrOriginRelative.Z = DesiredZ;
+			VrOrigin->SetRelativeLocation(VrOriginRelative);
 		}
 	}
 
@@ -590,51 +596,6 @@ void ACustomXrPawn::OnRightTriggerReleased(const FInputActionValue& Value)
 
 
 
-// ═══════════════════════════════════════════════════
-// Capsule Overlap — push physics objects
-// ═══════════════════════════════════════════════════
-
-/**
- * Called when the capsule overlaps a physics-simulated object.
- *
- * Since we use ECR_Overlap for PhysicsBody (instead of ECR_Block),
- * the capsule sweep passes right through physics objects — the player
- * doesn't stop. But we still want the "bump away" behavior where
- * walking into a cube/ball pushes it.
- *
- * We apply an impulse in the direction from the player to the object,
- * proportional to PhysicsPushForce. This feels natural and doesn't
- * affect the player's own movement at all.
- */
-void ACustomXrPawn::OnCapsuleOverlap(
-	UPrimitiveComponent* OverlappedComp,
-	AActor* OtherActor,
-	UPrimitiveComponent* OtherComp,
-	int32 OtherBodyIndex,
-	bool bFromSweep,
-	const FHitResult& SweepResult)
-{
-	if (!OtherActor || OtherActor == this || !OtherComp) return;
-
-	// Only push objects that are simulating physics
-	if (!OtherComp->IsSimulatingPhysics()) return;
-
-	// Compute push direction: from our center toward the other object
-	FVector PushDir = OtherActor->GetActorLocation() - GetActorLocation();
-	PushDir.Z = 0.f; // Keep the push horizontal so we don't launch objects skyward
-	
-	if (PushDir.IsNearlyZero())
-	{
-		// Object is exactly on top of us — push in our forward direction
-		PushDir = GetActorForwardVector();
-	}
-	else
-	{
-		PushDir.Normalize();
-	}
-
-	OtherComp->AddImpulse(PushDir * PhysicsPushForce, NAME_None, true);
-}
 
 
 // ═══════════════════════════════════════════════════

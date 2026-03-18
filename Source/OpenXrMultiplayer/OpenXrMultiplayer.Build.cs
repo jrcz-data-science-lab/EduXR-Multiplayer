@@ -2,7 +2,7 @@
 //
 // Defines module dependencies required by the plugin:
 //  - Online: OnlineSubsystem + OnlineSubsystemUtils for session management
-//  - XR: XRBase for MotionControllerComponent
+//  - XR: HeadMountedDisplay for MotionControllerComponent
 //  - Input: EnhancedInput for VR controller input
 //  - UI: UMG for WidgetInteractionComponent & UMG widgets (in-world UI)
 
@@ -21,7 +21,6 @@ public class OpenXrMultiplayer : ModuleRules
 				"Core",                 // Core types used everywhere
 				"OnlineSubsystem",      // IOnlineSubsystem, IOnlineSessionPtr (XrMpGameInstance.h)
 				"OnlineSubsystemUtils", // OnlineSubsystemUtils.h helpers (XrMpGameInstance.h)
-				"XRBase",               // UMotionControllerComponent (CustomXrPawn.h)
 				"EnhancedInput",        // UInputAction, FInputActionValue (CustomXrPawn.h)
 				"UMG",					// UWidgetInteractionComponent, UUserWidget, UEditableTextBox (public headers)
 				"HeadMountedDisplay"	// UMotionControllerComponent (public headers)
@@ -36,7 +35,6 @@ public class OpenXrMultiplayer : ModuleRules
 				"Engine",       // Core engine classes (AActor, UWorld, UGameEngine etc.)
 				"Slate",        // Slate widgets (SButton, SBorder etc. in VrKeyboardWidget.cpp)
 				"SlateCore",    // Slate rendering primitives
-				"NetCore",      // DOREPLIFETIME macros (Net/UnrealNetwork.h in CustomXrPawn.cpp)
 				"InputCore",    // EKeys definitions (EKeys::LeftMouseButton in CustomXrPawn.cpp)
 			}
 		);

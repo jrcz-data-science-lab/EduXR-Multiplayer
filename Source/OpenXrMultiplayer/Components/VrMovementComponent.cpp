@@ -9,8 +9,8 @@
 #include "VrMovementComponent.h"
 #include "CustomXrPawn.h"
 #include "Camera/CameraComponent.h"
-#include "Camera/CameraActor.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SceneComponent.h"
 #include "Engine/OverlapResult.h"
 
 /** Constructor — enables ticking so TickComponent runs every frame */
@@ -108,6 +108,9 @@ void UVrMovementComponent::TickComponent(float DeltaTime, ELevelTick TickTypez,
 
 	// Only run gravity/ground on the authoritative or locally-controlled copy
 	if (!ownerPawn->IsLocallyControlled() && !ownerPawn->HasAuthority()) return;
+
+	// Keep collision capsule under the tracked head position (room-scale movement).
+	SyncCapsuleToHmdXY();
 
 	// ── Depenetration Resolution ──
 	// If the capsule is overlapping world geometry (e.g. landed on an edge,
@@ -386,6 +389,37 @@ float UVrMovementComponent::Jump(float value)
 	bIsGrounded = false;
 
 	return JumpZVelocity;
+}
+
+void UVrMovementComponent::SyncCapsuleToHmdXY()
+{
+	if (!ownerPawn) return;
+
+	UCapsuleComponent* Capsule = ownerPawn->GetCapsuleCollider();
+	USceneComponent* VrOrigin = ownerPawn->GetVrOrigin();
+	UCameraComponent* Camera = ownerPawn->GetVRCamera();
+	if (!Capsule || !VrOrigin || !Camera) return;
+
+	FVector DesiredDelta = Camera->GetComponentLocation() - Capsule->GetComponentLocation();
+	DesiredDelta.Z = 0.f;
+	if (DesiredDelta.IsNearlyZero(0.25f)) return;
+
+	// Clamp one-frame recentering to avoid large tracking glitches causing launch-like jumps.
+	const float DesiredDistance2D = FVector2D(DesiredDelta.X, DesiredDelta.Y).Size();
+	if (MaxCapsuleRecenterPerTick > 0.f && DesiredDistance2D > MaxCapsuleRecenterPerTick)
+	{
+		DesiredDelta = DesiredDelta.GetSafeNormal2D() * MaxCapsuleRecenterPerTick;
+	}
+
+	const FVector BeforeMove = ownerPawn->GetActorLocation();
+	ownerPawn->AddActorWorldOffset(DesiredDelta, true);
+
+	const FVector AppliedDelta = ownerPawn->GetActorLocation() - BeforeMove;
+	if (!AppliedDelta.IsNearlyZero())
+	{
+		// Counter-shift origin so camera world-space location stays stable while capsule recenters.
+		VrOrigin->AddWorldOffset(-AppliedDelta, false);
+	}
 }
 
 

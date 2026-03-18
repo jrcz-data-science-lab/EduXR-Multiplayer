@@ -2,19 +2,19 @@
 
 A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem, with full VR head and hand tracking replication.
 
-> **⚠️ Status:** Beta (v0.6.1) - Improved LAN discovery, EOS stability fixes, and terminal log cleanup. Fully functional C++ VR virtual keyboard with button-driven target text box selection. Blueprint-exposed session search results, world-space UI server browser, physics collision rework, gravity/jump system, and depenetration resolution.
+> **⚠️ Status:** Beta (v0.6.2) - Explicit network-mode UI flow (`None` startup state), completed Blueprint menu cleanup, Build.cs dependency optimisation, and compile warning cleanup. Includes C++ VR keyboard, world-space UI interaction, and full session flow for Null/EOS.
 
 ## Features
 
 - 🎮 **Dual Network Mode Support**
   - Epic Online Services (EOS) for online P2P multiplayer
   - Null subsystem for local/LAN multiplayer
-  - Automatic fallback based on login status
+  - Explicit player-selected mode via `SetNetworkMode(Local/Online)`
 
-- 🔄 **Smart Subsystem Detection**
-  - Automatically uses Null subsystem (LAN) if not logged into EOS
-  - Switches to EOS networking when user explicitly logs in
-  - Seamless switching between network modes
+- 🔄 **Explicit Network Mode Flow**
+  - Startup mode is `None` for a neutral initial UI state
+  - Local mode uses Null subsystem only (no EOS login calls)
+  - Online mode uses EOS only after explicit `LoginOnlineService()`
 
 - 🕶️ **VR Tracking Replication**
   - Head (HMD) position and rotation synced across all players
@@ -142,7 +142,7 @@ Add this to your `DefaultEngine.ini`:
 +NetDriverDefinitions=(DefName="DemoNetDriver",DriverClassName="/Script/Engine.DemoNetDriver",DriverClassNameFallback="/Script/Engine.DemoNetDriver")
 
 [OnlineSubsystem]
-DefaultPlatformService=EOS
+DefaultPlatformService=Null
 
 [OnlineSubsystemEOS]
 bEnabled=true
@@ -182,26 +182,26 @@ Call Function: Login Online Service
 
 ## How It Works
 
-### Automatic Subsystem Selection
+### Explicit Subsystem Selection
 
-The plugin intelligently selects the appropriate online subsystem:
+The plugin now uses explicit player-selected mode switching:
 
 ```
 ┌─────────────────────────────────────────┐
 │  Game Starts                            │
-│  ✓ EOS auto-login (for social features)│
-│  ✓ Multiplayer defaults to LAN         │
+│  ActiveNetworkMode = None               │
+│  No EOS login is triggered              │
 └─────────────────────────────────────────┘
                   ↓
-         User's Choice:
+         User picks mode in UI:
                   ↓
     ┌─────────────┴─────────────┐
     │                           │
     ▼                           ▼
-Don't Call Login          Call LoginOnlineService()
+SetNetworkMode(Local)     SetNetworkMode(Online)
     │                           │
     ▼                           ▼
-Use Null Subsystem      Use EOS Subsystem
+Use Null Subsystem      Optional: LoginOnlineService()
     │                           │
     ▼                           ▼
 IpNetDriver               NetDriverEOSBase
@@ -461,9 +461,9 @@ To test VR multiplayer with two instances on the same machine:
 ### Backlog & Known Issues
 
 See **[TODO.md](TODO.md)** for the full list of planned work, including:
-- Blueprint graph cleanup and comments
-- `Build.cs` and C++ optimisation pass
+- C++ optimisation follow-up pass
 - Net driver / session bug fixes (EOS overlay appearing in local mode, LAN session discovery)
+- Niagara VR controller cursor visuals
 
 ### Building from Source
 
@@ -486,8 +486,7 @@ See **[TODO.md](TODO.md)** for the full list of planned work, including:
 - Seamless travel not fully supported — uses absolute travel for session creation
 - Primary testing on Windows — other platforms may need adjustments
 - Content directory assets still under development
-- Blueprint widget graphs (menus, host UI) not yet commented/cleaned up — planned for v0.6.1
-- Build.cs and C++ optimisation pass planned for v0.6.1
+- Capsule collision rework is still under testing and not finalized for release notes yet
 
 ## License
 

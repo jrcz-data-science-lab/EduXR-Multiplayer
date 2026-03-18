@@ -36,7 +36,10 @@ enum class EXrNetworkMode : uint8
 	Local   UMETA(DisplayName = "Local (LAN)"),
 
 	/** Online P2P via OnlineSubsystemEOS — requires EOS login */
-	Online  UMETA(DisplayName = "Online (EOS)")
+	Online  UMETA(DisplayName = "Online (EOS)"),
+	
+	/** Default uninitialized state */
+	None	UMETA(DisplayName = "None (default)")
 };
 
 /**
@@ -95,6 +98,9 @@ class OPENXRMULTIPLAYER_API UXrMpGameInstance : public UGameInstance
 	GENERATED_BODY()
 
 public:
+	// Keep base overloads visible so our Blueprint JoinSession(int32) helper does not hide UGameInstance virtual overloads.
+	using UGameInstance::JoinSession;
+
 	/**
 	 * Constructor - Minimal initialization
 	 * Most setup happens in Init()
@@ -291,8 +297,8 @@ protected:
 	                                 const FOnlineSessionSearchResult& InviteResult);
 
 private:
-	/** The explicitly chosen network mode — defaults to Local */
-	EXrNetworkMode ActiveNetworkMode = EXrNetworkMode::Local;
+	/** The explicitly chosen network mode — defaults to None for INI */
+	EXrNetworkMode ActiveNetworkMode = EXrNetworkMode::None;
 
 	/** True after a successful EOS login in Online mode */
 	bool bIsLoggedIntoEOS = false;
