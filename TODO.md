@@ -7,6 +7,26 @@ Tracked items that need attention in future versions. These are non-blocking —
 ## 🟢 Fixed & Completed
 (Recent updates)
 
+### Code Quality & Optimisation
+
+#### Blueprint Cleanup
+- [x] Review all widget Blueprint graphs (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`)
+- [x] Reroute messy node graphs so they read left-to-right cleanly
+- [x] Add comments/comment boxes to every non-obvious graph section
+- [x] Remove any dead nodes or unused variables left over from iteration
+
+#### Build.cs Optimisation
+- [x] Audit `OpenXrMultiplayer.Build.cs` — list every module in `PublicDependencyModuleNames` and `PrivateDependencyModuleNames`
+- [x] Remove any module that is not directly referenced in plugin C++ headers or source files
+- [x] Move modules only used in `.cpp` files from `Public` → `Private` dependencies
+- [x] Verify the build still compiles and no new linker errors appear after trimming
+
+### Bug Fixes — Net Driver / Session
+
+#### LAN Session Not Discoverable (Null Subsystem)
+- [x] **Investigate:** Analyzed `OpenXrMp.log`. Discovery fails with 0 results despite `bIsLANMatch=true`.
+- [x] **Fix:** Updated `DefaultEngine.ini` with `NetServerMaxTickRate=60`.
+
 ### Auto Net Driver Method (General Rework)
 - [x] Review the full `ConfigureNetDriverForSubsystem` flow — make sure it only reconfigures when actually switching subsystems, not on every call
 - [x] Ensure net driver config does not bleed EOS settings into a Null session
@@ -28,18 +48,6 @@ Tracked items that need attention in future versions. These are non-blocking —
 
 ## 🔵 Code Quality & Optimisation
 
-### Blueprint Cleanup
-- [x] Review all widget Blueprint graphs (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`)
-- [x] Reroute messy node graphs so they read left-to-right cleanly
-- [x] Add comments/comment boxes to every non-obvious graph section
-- [x] Remove any dead nodes or unused variables left over from iteration
-
-### Build.cs Optimisation
-- [x] Audit `OpenXrMultiplayer.Build.cs` — list every module in `PublicDependencyModuleNames` and `PrivateDependencyModuleNames`
-- [x] Remove any module that is not directly referenced in plugin C++ headers or source files
-- [x] Move modules only used in `.cpp` files from `Public` → `Private` dependencies
-- [x] Verify the build still compiles and no new linker errors appear after trimming
-
 ### C++ Code Optimisation
 - [ ] General readability pass on all plugin `.h` and `.cpp` files
 - [ ] Ensure all `UPROPERTY` / `UFUNCTION` macros have correct specifiers (no extras, no missing)
@@ -52,9 +60,7 @@ Tracked items that need attention in future versions. These are non-blocking —
 ## 🔴 Bug Fixes — Net Driver / Session *(needs investigation)*
 
 ### LAN Session Not Discoverable (Null Subsystem)
-- [x] **Investigate:** Analyzed `OpenXrMp.log`. Discovery fails with 0 results despite `bIsLANMatch=true`.
 - [ ] **Currently Testing:** Refined `FOnlineSessionSettings` and `FOnlineSessionSearch` in `XrMpGameInstance.cpp` for more standard LAN behavior (`bIsDedicated`, `bUsesStats`, `PingBucketSize`).
-- [x] **Fix:** Updated `DefaultEngine.ini` with `NetServerMaxTickRate=60`.
 - [ ] **Steps to reproduce:** Host (Null, LAN=true) on Instance 1 → FindSessions (Null, LAN=true) on Instance 2 on different devices.
 
 ### Capsule Collision Rework
@@ -73,5 +79,5 @@ Tracked items that need attention in future versions. These are non-blocking —
 
 ---
 
-*Last updated: 2026-03-18 (v0.6.2 prep)*
+*Last updated: 2026-03-20 (v0.6.2 prep)*
 
