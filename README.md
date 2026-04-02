@@ -2,7 +2,7 @@
 
 A multiplayer plugin for Unreal Engine 5 designed for educational XR experiences. Provides seamless integration with both Epic Online Services (EOS) and local/LAN networking using the Null subsystem, with full VR head and hand tracking replication.
 
-> **⚠️ Status:** Beta (v0.6.2) - Explicit network-mode UI flow (`None` startup state), completed Blueprint menu cleanup, Build.cs dependency optimisation, and compile warning cleanup. Includes C++ VR keyboard, world-space UI interaction, and full session flow for Null/EOS.
+> **⚠️ Status:** Beta (v0.6.3 work-in-progress) - Explicit network-mode UI flow (`None` startup state), completed Blueprint menu cleanup, Build.cs dependency optimisation, and compile warning cleanup. LAN discovery is now confirmed to be network-dependent on some physical-device setups; direct IP join is available for manual testing, while EOS / dedicated-server flow is the reliable long-term path.
 
 ## Features
 
@@ -462,7 +462,7 @@ To test VR multiplayer with two instances on the same machine:
 
 See **[TODO.md](TODO.md)** for the full list of planned work, including:
 - C++ optimisation follow-up pass
-- Net driver / session bug fixes (EOS overlay appearing in local mode, LAN session discovery)
+- Net driver / session follow-up (LAN discovery reliability on real networks, manual IP fallback, EOS / dedicated-server path)
 - Niagara VR controller cursor visuals
 
 ### Building from Source

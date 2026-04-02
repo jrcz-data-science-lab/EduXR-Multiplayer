@@ -126,6 +126,8 @@ public:
 	/**
 	 * Set the networking mode. Call this from Blueprint when the player
 	 * picks "Local" or "Online" on the mode-selection screen.
+	 * 
+	 * None: Default so we don't handle anything on startup
 	 *
 	 * Local:  Switches SessionInterface to OnlineSubsystemNull.
 	 *         Configures IpNetDriver. EOS is not touched at all.
@@ -175,6 +177,14 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer")
 	void JoinSession(int32 SessionIndex);
+
+	/**
+	 * Join a session by direct IP address (workaround for LAN discovery issues)
+	 * @param HostIPAddress IP address of the host (e.g., "192.168.1.100")
+	 * @param Port Game port (default 7777)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer")
+	void JoinSessionByIP(const FString& HostIPAddress, int32 Port = 7777);
 
 	/**
 	 * Destroy the current active session
@@ -288,6 +298,9 @@ protected:
 	 * If successful, travels the player to the server
 	 */
 	void OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result);
+
+	/** Called when StartSession completes. Useful for LAN beacon diagnostics. */
+	void OnStartSessionComplete(FName SessionName, bool bWasSuccessful);
 	
 	/**
 	 * Called when player accepts a session invite (EOS only feature)
@@ -351,6 +364,18 @@ private:
 	/** Bind all session delegates to the current SessionInterface */
 	void BindSessionDelegates();
 
+	/** Resolve a stable local user id for session create/find/join operations. */
+	bool ResolveLocalSessionUserId(FUniqueNetIdRepl& OutUserId, bool bUsingEOS, const TCHAR* Context);
+
+	/** Register the local player in a created session so OSS Null keeps membership consistent across travel. */
+	void TryRegisterLocalPlayer(FName SessionName, const TCHAR* Context);
+
+	/** Called after a map load so host sessions can be started after ServerTravel completes. */
+	void OnPostLoadMapWithWorld(UWorld* LoadedWorld);
+
+	/** Timer callback that starts the pending host session after a small Null-only delay. */
+	void StartPendingSessionAfterTravel();
+
 	/**
 	 * Cached Blueprint-friendly session results from the last search.
 	 * Populated in OnFindSessionsComplete, returned by GetSessionSearchResults().
@@ -362,4 +387,38 @@ private:
 	 * Prevents overlapping searches and lets the UI show a spinner.
 	 */
 	bool bIsSearching = false;
+
+	/** Handle for the post-map-load delegate used to defer StartSession until after travel. */
+	FDelegateHandle PostLoadMapWithWorldHandle;
+
+	/** True when host flow should call StartSession after ServerTravel finishes loading. */
+	bool bPendingStartSessionAfterTravel = false;
+
+	/** Session name to start once post-travel map load completes. */
+	FName PendingStartSessionName = NAME_None;
+
+	/** Timer used for delayed StartSession after post-travel map load. */
+	FTimerHandle PendingStartSessionTimerHandle;
+
+	/** Log available network interfaces for debugging cross-device discovery. */
+	void LogNetworkInterfaces(const TCHAR* Context);
+
+	/** Delay before StartSession in Local/Null mode to avoid post-travel beacon timing races. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|LAN", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", UIMin = "0.0"))
+	float NullStartSessionDelaySeconds = 0.35f;
+
+	/** If set, enables verbose Null LAN beacon diagnostics in logs. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|LAN|Debug", meta = (AllowPrivateAccess = "true"))
+	bool bEnableLANDiagnostics = false;
+
+	/** Latest condensed LAN diagnostics summary, useful for Blueprint UI/debug overlays. */
+	UPROPERTY(BlueprintReadOnly, Category = "XR Multiplayer|LAN|Debug", meta = (AllowPrivateAccess = "true"))
+	FString LastLANDiagnosticsSummary;
+
+	/** Returns the latest condensed LAN diagnostics summary. */
+	UFUNCTION(BlueprintPure, Category = "XR Multiplayer|LAN|Debug")
+	FString GetLastLANDiagnosticsSummary() const { return LastLANDiagnosticsSummary; }
+
+	/** Update the cached LAN diagnostics summary string. */
+	void UpdateLANDiagnosticsSummary(const FString& Summary);
 };

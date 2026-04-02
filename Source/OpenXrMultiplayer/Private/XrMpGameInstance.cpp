@@ -11,6 +11,7 @@
 
 #include "OnlineSubsystemUtils.h"
 #include "Engine/GameEngine.h"
+#include "SocketSubsystem.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
 
@@ -20,6 +21,15 @@
 
 UXrMpGameInstance::UXrMpGameInstance()
 {
+}
+
+void UXrMpGameInstance::UpdateLANDiagnosticsSummary(const FString& Summary)
+{
+	LastLANDiagnosticsSummary = Summary;
+	if (bEnableLANDiagnostics)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] SUMMARY: %s"), *Summary);
+	}
 }
 
 /**
@@ -32,14 +42,30 @@ void UXrMpGameInstance::Init()
 
 	ActiveNetworkMode = EXrNetworkMode::None;
 	bIsLoggedIntoEOS = false;
+	UpdateLANDiagnosticsSummary(TEXT("Init: ActiveNetworkMode=None, subsystem=Null"));
 
+	UE_LOG(LogTemp, Warning, TEXT("Init: ActiveNetworkMode=None, bEnableLANDiagnostics=%s"), bEnableLANDiagnostics ? TEXT("true") : TEXT("false"));
 	ActivateSubsystem(FName(TEXT("Null")));
+
+	PostLoadMapWithWorldHandle = FCoreUObjectDelegates::PostLoadMapWithWorld.AddUObject(
+		this, &UXrMpGameInstance::OnPostLoadMapWithWorld);
+
+	if (bEnableLANDiagnostics)
+	{
+		LogNetworkInterfaces(TEXT("Init"));
+	}
 
 	UE_LOG(LogTemp, Warning, TEXT("XrMpGameInstance::Init — Mode: Local, Subsystem: Null"));
 }
 
 void UXrMpGameInstance::Shutdown()
 {
+	if (PostLoadMapWithWorldHandle.IsValid())
+	{
+		FCoreUObjectDelegates::PostLoadMapWithWorld.Remove(PostLoadMapWithWorldHandle);
+		PostLoadMapWithWorldHandle = FDelegateHandle();
+	}
+
 	DestroyCurrentSession();
 	Super::Shutdown();
 }
@@ -94,6 +120,7 @@ void UXrMpGameInstance::ActivateSubsystem(const FName& SubsystemName)
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("ActivateSubsystem: %s"), *OSS->GetSubsystemName().ToString());
+	UE_LOG(LogTemp, Warning, TEXT("ActivateSubsystem: OSS ptr=%p, current ActiveNetworkMode=%d"), OSS, static_cast<uint8>(ActiveNetworkMode));
 
 	SessionInterface = OSS->GetSessionInterface();
 	if (!SessionInterface.IsValid())
@@ -101,6 +128,8 @@ void UXrMpGameInstance::ActivateSubsystem(const FName& SubsystemName)
 		UE_LOG(LogTemp, Error, TEXT("ActivateSubsystem: SessionInterface is invalid for %s"), *SubsystemName.ToString());
 		return;
 	}
+
+	UE_LOG(LogTemp, Warning, TEXT("ActivateSubsystem: SessionInterface valid, configuring net driver for %s"), *SubsystemName.ToString());
 
 	bool bIsNull = (SubsystemName == FName(TEXT("Null")));
 	ConfigureNetDriverForSubsystem(bIsNull);
@@ -115,12 +144,217 @@ void UXrMpGameInstance::BindSessionDelegates()
 	SessionInterface->ClearOnDestroySessionCompleteDelegates(this);
 	SessionInterface->ClearOnFindSessionsCompleteDelegates(this);
 	SessionInterface->ClearOnJoinSessionCompleteDelegates(this);
+	SessionInterface->ClearOnStartSessionCompleteDelegates(this);
 
 	SessionInterface->OnCreateSessionCompleteDelegates.AddUObject(this, &UXrMpGameInstance::OnCreateSessionComplete);
 	SessionInterface->OnDestroySessionCompleteDelegates.AddUObject(this, &UXrMpGameInstance::OnDestroySessionComplete);
 	SessionInterface->OnFindSessionsCompleteDelegates.AddUObject(this, &UXrMpGameInstance::OnFindSessionsComplete);
 	SessionInterface->OnJoinSessionCompleteDelegates.AddUObject(this, &UXrMpGameInstance::OnJoinSessionComplete);
+	SessionInterface->OnStartSessionCompleteDelegates.AddUObject(this, &UXrMpGameInstance::OnStartSessionComplete);
 	SessionInterface->OnSessionUserInviteAcceptedDelegates.AddUObject(this, &UXrMpGameInstance::OnSessionUserInviteAccepted);
+}
+
+bool UXrMpGameInstance::ResolveLocalSessionUserId(FUniqueNetIdRepl& OutUserId, bool bUsingEOS, const TCHAR* Context)
+{
+	OutUserId = FUniqueNetIdRepl();
+
+	const UWorld* World = GetWorld();
+	const ULocalPlayer* LocalPlayer = World ? World->GetFirstLocalPlayerFromController() : nullptr;
+	UE_LOG(LogTemp, Warning, TEXT("%s: Resolving user id (bUsingEOS=%s, World=%s, LocalPlayer=%s)"),
+		Context,
+		bUsingEOS ? TEXT("true") : TEXT("false"),
+		World ? *World->GetName() : TEXT("<null>"),
+		LocalPlayer ? TEXT("valid") : TEXT("<null>"));
+	if (!LocalPlayer)
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s Failed: LocalPlayer is null"), Context);
+		return false;
+	}
+
+	if (bUsingEOS)
+	{
+		IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("EOS"));
+		if (OSS)
+		{
+			IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
+			if (Identity.IsValid())
+			{
+				OutUserId = Identity->GetUniquePlayerId(0);
+			}
+		}
+
+		if (!OutUserId.IsValid())
+		{
+			UE_LOG(LogTemp, Error, TEXT("%s Failed: Not logged into EOS or UserId invalid. Call LoginOnlineService() first."), Context);
+			return false;
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("%s: Resolved EOS user id = %s"), Context, *OutUserId->ToString());
+
+		return true;
+	}
+
+	OutUserId = LocalPlayer->GetPreferredUniqueNetId();
+	UE_LOG(LogTemp, Warning, TEXT("%s: Preferred NetId valid=%s"), Context, OutUserId.IsValid() ? TEXT("true") : TEXT("false"));
+	if (!OutUserId.IsValid())
+	{
+		OutUserId = LocalPlayer->GetCachedUniqueNetId();
+		UE_LOG(LogTemp, Warning, TEXT("%s: Cached NetId valid=%s"), Context, OutUserId.IsValid() ? TEXT("true") : TEXT("false"));
+	}
+
+	if (!OutUserId.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("%s Failed: Local UserId is invalid in Local(Null) mode"), Context);
+		return false;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("%s: Resolved Local(Null) user id = %s"), Context, *OutUserId->ToString());
+
+	return true;
+}
+
+void UXrMpGameInstance::TryRegisterLocalPlayer(FName SessionName, const TCHAR* Context)
+{
+	if (!SessionInterface.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: Skipping RegisterPlayer because SessionInterface is invalid"), Context);
+		return;
+	}
+
+	const bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
+	FUniqueNetIdRepl UserId;
+	if (!ResolveLocalSessionUserId(UserId, bUsingEOS, Context) || !UserId.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: Skipping RegisterPlayer because user id could not be resolved"), Context);
+		return;
+	}
+
+	if (!UserId.GetUniqueNetId().IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("%s: Cannot register local player because UniqueNetId is invalid"), Context);
+		return;
+	}
+
+	const bool bRegisterRequested = SessionInterface->RegisterPlayer(SessionName, *UserId.GetUniqueNetId(), false);
+	UE_LOG(LogTemp, Warning, TEXT("%s: RegisterPlayer(%s) request result: %s"),
+		Context,
+		*SessionName.ToString(),
+		bRegisterRequested ? TEXT("true") : TEXT("false"));
+}
+
+void UXrMpGameInstance::OnPostLoadMapWithWorld(UWorld* LoadedWorld)
+{
+	UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: LoadedWorld=%s, pendingStart=%s, pendingSession=%s"),
+		LoadedWorld ? *LoadedWorld->GetName() : TEXT("<null>"),
+		bPendingStartSessionAfterTravel ? TEXT("true") : TEXT("false"),
+		*PendingStartSessionName.ToString());
+
+	if (!bPendingStartSessionAfterTravel || !SessionInterface.IsValid() || PendingStartSessionName.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: Ignoring (SessionInterfaceValid=%s, PendingSessionNameNone=%s)"),
+			SessionInterface.IsValid() ? TEXT("true") : TEXT("false"),
+			PendingStartSessionName.IsNone() ? TEXT("true") : TEXT("false"));
+		return;
+	}
+
+	FNamedOnlineSession* Session = SessionInterface->GetNamedSession(PendingStartSessionName);
+	if (!Session)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: Pending start ignored because session %s no longer exists"),
+			*PendingStartSessionName.ToString());
+		bPendingStartSessionAfterTravel = false;
+		PendingStartSessionName = NAME_None;
+		return;
+	}
+
+	if (Session->SessionState == EOnlineSessionState::Pending)
+	{
+		TryRegisterLocalPlayer(PendingStartSessionName, TEXT("OnPostLoadMapWithWorld"));
+
+		UWorld* World = GetWorld();
+		if (World)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: Scheduling StartSession for %s in %.2fs (World=%s, SessionState=%s)"),
+				*PendingStartSessionName.ToString(),
+				NullStartSessionDelaySeconds,
+				*World->GetName(),
+				EOnlineSessionState::ToString(Session->SessionState));
+			World->GetTimerManager().SetTimer(
+				PendingStartSessionTimerHandle,
+				this,
+				&UXrMpGameInstance::StartPendingSessionAfterTravel,
+				NullStartSessionDelaySeconds,
+				false);
+			UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: Timer armed, handle valid=%s"), PendingStartSessionTimerHandle.IsValid() ? TEXT("true") : TEXT("false"));
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: No world for timer, starting session %s immediately"),
+				*PendingStartSessionName.ToString());
+			const bool bStartRequested = SessionInterface->StartSession(PendingStartSessionName);
+			UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: StartSession request result: %s"),
+				bStartRequested ? TEXT("true") : TEXT("false"));
+			bPendingStartSessionAfterTravel = false;
+			PendingStartSessionName = NAME_None;
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("OnPostLoadMapWithWorld: Session %s already in state %s"),
+			*PendingStartSessionName.ToString(), EOnlineSessionState::ToString(Session->SessionState));
+		bPendingStartSessionAfterTravel = false;
+		PendingStartSessionName = NAME_None;
+	}
+}
+
+void UXrMpGameInstance::StartPendingSessionAfterTravel()
+{
+	UE_LOG(LogTemp, Warning, TEXT("StartPendingSessionAfterTravel: pendingStart=%s, pendingSession=%s"),
+		bPendingStartSessionAfterTravel ? TEXT("true") : TEXT("false"),
+		*PendingStartSessionName.ToString());
+
+	if (!bPendingStartSessionAfterTravel || !SessionInterface.IsValid() || PendingStartSessionName.IsNone())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("StartPendingSessionAfterTravel: Ignored (SessionInterfaceValid=%s, PendingSessionNameNone=%s)"),
+			SessionInterface.IsValid() ? TEXT("true") : TEXT("false"),
+			PendingStartSessionName.IsNone() ? TEXT("true") : TEXT("false"));
+		return;
+	}
+
+	FNamedOnlineSession* Session = SessionInterface->GetNamedSession(PendingStartSessionName);
+	if (!Session)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("StartPendingSessionAfterTravel: Session %s no longer exists"),
+			*PendingStartSessionName.ToString());
+		bPendingStartSessionAfterTravel = false;
+		PendingStartSessionName = NAME_None;
+		return;
+	}
+
+	if (Session->SessionState == EOnlineSessionState::Pending)
+	{
+		TryRegisterLocalPlayer(PendingStartSessionName, TEXT("StartPendingSessionAfterTravel"));
+
+		UE_LOG(LogTemp, Warning, TEXT("StartPendingSessionAfterTravel: Starting session %s (State=%s, LAN=%s, BuildUniqueId=%d, OpenPublic=%d/%d)"),
+			*PendingStartSessionName.ToString(),
+			EOnlineSessionState::ToString(Session->SessionState),
+			Session->SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+			Session->SessionSettings.BuildUniqueId,
+			Session->NumOpenPublicConnections,
+			Session->SessionSettings.NumPublicConnections);
+		const bool bStartRequested = SessionInterface->StartSession(PendingStartSessionName);
+		UE_LOG(LogTemp, Warning, TEXT("StartPendingSessionAfterTravel: StartSession request result: %s"),
+			bStartRequested ? TEXT("true") : TEXT("false"));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("StartPendingSessionAfterTravel: Session %s already in state %s"),
+			*PendingStartSessionName.ToString(), EOnlineSessionState::ToString(Session->SessionState));
+	}
+
+	bPendingStartSessionAfterTravel = false;
+	PendingStartSessionName = NAME_None;
+	PendingStartSessionTimerHandle.Invalidate();
 }
 
 // ═══════════════════════════════════════════════════
@@ -150,6 +384,9 @@ void UXrMpGameInstance::ConfigureNetDriverForSubsystem(bool bUsingNullSubsystem)
 				NetDriverDef.DriverClassName = FName(TEXT("/Script/SocketSubsystemEOS.NetDriverEOSBase"));
 				UE_LOG(LogTemp, Warning, TEXT("Net driver → NetDriverEOSBase (EOS P2P)"));
 			}
+			UE_LOG(LogTemp, Warning, TEXT("ConfigureNetDriverForSubsystem: GameNetDriver=%s, DriverClassName=%s"),
+				*NetDriverDef.DefName.ToString(),
+				*NetDriverDef.DriverClassName.ToString());
 			break;
 		}
 	}
@@ -189,6 +426,7 @@ void UXrMpGameInstance::LoginToEOS()
 	// Bind the login-complete delegate
 	Identity->AddOnLoginCompleteDelegate_Handle(
 		0, FOnLoginCompleteDelegate::CreateUObject(this, &UXrMpGameInstance::OnLoginComplete));
+	UE_LOG(LogTemp, Warning, TEXT("LoginToEOS: bound login-complete delegate, local user 0 status=%d"), static_cast<int32>(Identity->GetLoginStatus(0)));
 
 	// Check if already logged in (persistent credentials from a previous session)
 	ELoginStatus::Type LoginStatus = Identity->GetLoginStatus(0);
@@ -216,6 +454,12 @@ void UXrMpGameInstance::LoginToEOS()
 void UXrMpGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful, const FUniqueNetId& UserId,
                                         const FString& Error)
 {
+	UE_LOG(LogTemp, Warning, TEXT("OnLoginComplete: LocalUserNum=%d, bWasSuccessful=%s, UserId=%s, Error=%s"),
+		LocalUserNum,
+		bWasSuccessful ? TEXT("true") : TEXT("false"),
+		*UserId.ToString(),
+		Error.IsEmpty() ? TEXT("<none>") : *Error);
+
 	if (bWasSuccessful)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("EOS Login Success!"));
@@ -235,10 +479,44 @@ void UXrMpGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful,
 void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString ServerName)
 {
 	bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
-
-	UE_LOG(LogTemp, Warning, TEXT("HostSession: Mode=%s, MaxPlayers=%d, ServerName=%s"),
+	const bool bUseLanMatch = !bUsingEOS;
+	UWorld* World = GetWorld();
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostSession: Mode=%s, RequestedLan=%s, EffectiveLan=%s, MaxPlayers=%d, ServerName=%s"),
 		bUsingEOS ? TEXT("Online(EOS)") : TEXT("Local(Null)"),
+		bIsLan ? TEXT("true") : TEXT("false"),
+		bUseLanMatch ? TEXT("true") : TEXT("false"),
+		MaxPlayers,
+		*ServerName));
+
+	if (bEnableLANDiagnostics)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] HostSession starting - network diagnostics enabled"));
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] This machine should advertise on beacon port 15000"));
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] World=%s, NetMode=%d, MapUrl=%s"),
+			World ? *World->GetName() : TEXT("<null>"),
+			World ? static_cast<int32>(World->GetNetMode()) : -1,
+			*MapUrl);
+	}
+
+	if (bEnableLANDiagnostics && bUseLanMatch)
+	{
+		LogNetworkInterfaces(TEXT("HostSession"));
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("HostSession: Mode=%s, RequestedLan=%s, EffectiveLan=%s, MaxPlayers=%d, ServerName=%s"),
+		bUsingEOS ? TEXT("Online(EOS)") : TEXT("Local(Null)"),
+		bIsLan ? TEXT("true") : TEXT("false"),
+		bUseLanMatch ? TEXT("true") : TEXT("false"),
 		MaxPlayers, *ServerName);
+	UE_LOG(LogTemp, Warning, TEXT("HostSession: ActiveNetworkMode=%d, SessionInterfaceValid=%s, World=%s"),
+		static_cast<uint8>(ActiveNetworkMode),
+		SessionInterface.IsValid() ? TEXT("true") : TEXT("false"),
+		World ? *World->GetName() : TEXT("<null>"));
+
+	if (bUsingEOS && bIsLan)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HostSession: bIsLan=true was requested in Online mode and will be ignored."));
+	}
 
 	if (!SessionInterface.IsValid())
 	{
@@ -251,7 +529,7 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 	SessionSettings->NumPublicConnections = MaxPlayers;
 	SessionSettings->bShouldAdvertise = true;
 	SessionSettings->bAllowJoinInProgress = true;
-	SessionSettings->bIsLANMatch = !bUsingEOS;
+	SessionSettings->bIsLANMatch = bUseLanMatch;
 	SessionSettings->bUsesPresence = bUsingEOS;
 	SessionSettings->bAllowInvites = bUsingEOS;
 	SessionSettings->bAllowJoinViaPresence = bUsingEOS;
@@ -260,6 +538,11 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 	SessionSettings->bUseLobbiesVoiceChatIfAvailable = bUsingEOS;
 	SessionSettings->bIsDedicated = false;
 	SessionSettings->bUsesStats = false;
+	if (bUseLanMatch)
+	{
+		// Keep LAN discovery cross-build/platform friendly while using OSS Null.
+		SessionSettings->BuildUniqueId = 1;
+	}
 
 	if (bUsingEOS && MaxPlayers > 16 && SessionSettings->bUseLobbiesVoiceChatIfAvailable)
 	{
@@ -275,79 +558,47 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 		SessionSettings->Set(FName("PLAYER_NAME"), CustomUsername, EOnlineDataAdvertisementType::ViaOnlineService);
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("  bIsLANMatch=%s, bShouldAdvertise=%s, bUsesPresence=%s"),
+	UE_LOG(LogTemp, Warning, TEXT("  bIsLANMatch=%s, bShouldAdvertise=%s, bUsesPresence=%s, BuildUniqueId=%d"),
 		SessionSettings->bIsLANMatch ? TEXT("true") : TEXT("false"),
 		SessionSettings->bShouldAdvertise ? TEXT("true") : TEXT("false"),
-		SessionSettings->bUsesPresence ? TEXT("true") : TEXT("false"));
+		SessionSettings->bUsesPresence ? TEXT("true") : TEXT("false"),
+		SessionSettings->BuildUniqueId);
+	UE_LOG(LogTemp, Warning, TEXT("  bAllowJoinInProgress=%s, bAllowInvites=%s, bAllowJoinViaPresence=%s, bUseLobbiesIfAvailable=%s, bUseLobbiesVoiceChatIfAvailable=%s, bIsDedicated=%s, bUsesStats=%s"),
+		SessionSettings->bAllowJoinInProgress ? TEXT("true") : TEXT("false"),
+		SessionSettings->bAllowInvites ? TEXT("true") : TEXT("false"),
+		SessionSettings->bAllowJoinViaPresence ? TEXT("true") : TEXT("false"),
+		SessionSettings->bUseLobbiesIfAvailable ? TEXT("true") : TEXT("false"),
+		SessionSettings->bUseLobbiesVoiceChatIfAvailable ? TEXT("true") : TEXT("false"),
+		SessionSettings->bIsDedicated ? TEXT("true") : TEXT("false"),
+		SessionSettings->bUsesStats ? TEXT("true") : TEXT("false"));
+	UE_LOG(LogTemp, Warning, TEXT("  MapUrl=%s, ReturnToMainMenuUrl=%s"), *MapUrl, *ReturnToMainMenuUrl);
 
 	// Destroy existing session if it exists
 	auto ExistingSession = SessionInterface->GetNamedSession(NAME_GameSession);
 	if (ExistingSession)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("HostSession: Existing session found, destroying before recreate. State=%s, LAN=%s, BuildUniqueId=%d, OpenPublic=%d/%d"),
+			EOnlineSessionState::ToString(ExistingSession->SessionState),
+			ExistingSession->SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+			ExistingSession->SessionSettings.BuildUniqueId,
+			ExistingSession->NumOpenPublicConnections,
+			ExistingSession->SessionSettings.NumPublicConnections);
 		PendingSessionSettings = SessionSettings;
 		PendingSessionName = ServerName;
+		UE_LOG(LogTemp, Warning, TEXT("HostSession: Pending recreate stored (ServerName=%s)"), *PendingSessionName);
 		SessionInterface->DestroySession(NAME_GameSession);
 		return;
 	}
 
 	// Get Local Player and UserId
-	const ULocalPlayer* LocalPlayer = GetWorld() ? GetWorld()->GetFirstLocalPlayerFromController() : nullptr;
-	if (!LocalPlayer)
-	{
-		UE_LOG(LogTemp, Error, TEXT("HostSession Failed: LocalPlayer is null"));
-		return;
-	}
-
 	FUniqueNetIdRepl UserId;
-
-	if (bUsingEOS)
+	if (!ResolveLocalSessionUserId(UserId, bUsingEOS, TEXT("HostSession")))
 	{
-		IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("EOS"));
-		if (OSS)
-		{
-			IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
-			if (Identity.IsValid())
-			{
-				UserId = Identity->GetUniquePlayerId(0);
-			}
-		}
-
-		if (!UserId.IsValid())
-		{
-			UE_LOG(LogTemp, Error, TEXT("HostSession Failed: Not logged into EOS or UserId invalid. Call LoginOnlineService() first."));
-			return;
-		}
-	}
-	else
-	{
-		UserId = LocalPlayer->GetPreferredUniqueNetId();
-		if (!UserId.IsValid())
-		{
-			UserId = LocalPlayer->GetCachedUniqueNetId();
-		}
-
-		if (!UserId.IsValid())
-		{
-			IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("Null"));
-			if (OSS)
-			{
-				IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
-				if (Identity.IsValid())
-				{
-					UserId = Identity->CreateUniquePlayerId(TEXT("LocalPlayer_0"));
-					UE_LOG(LogTemp, Warning, TEXT("Created dummy user ID for Null subsystem: %s"), *UserId->ToString());
-				}
-			}
-		}
-	}
-
-	if (!UserId.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("HostSession Failed: UserId is still invalid"));
 		return;
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("Creating session with UserId: %s"), *UserId->ToString());
+	UE_LOG(LogTemp, Warning, TEXT("HostSession: CreateSession request -> SessionName=GameSession, Search settings advertised key count may follow in OnCreateSessionComplete"));
 	SessionInterface->CreateSession(*UserId, NAME_GameSession, *SessionSettings);
 }
 
@@ -357,10 +608,22 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 
 void UXrMpGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSuccessful)
 {
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("OnCreateSessionComplete: Session=%s, Success=%s, PendingStartAfterTravel=%s"),
+		*SessionName.ToString(),
+		bWasSuccessful ? TEXT("true") : TEXT("false"),
+		bPendingStartSessionAfterTravel ? TEXT("true") : TEXT("false")));
+
+	UE_LOG(LogTemp, Warning, TEXT("OnCreateSessionComplete: Session=%s, Success=%s, Mode=%s, PendingStartAfterTravel=%s"),
+		*SessionName.ToString(),
+		bWasSuccessful ? TEXT("true") : TEXT("false"),
+		ActiveNetworkMode == EXrNetworkMode::Online ? TEXT("Online") : TEXT("Local"),
+		bPendingStartSessionAfterTravel ? TEXT("true") : TEXT("false"));
+
 	if (bWasSuccessful)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Session Created Successfully! Mode: %s"),
 			ActiveNetworkMode == EXrNetworkMode::Online ? TEXT("Online") : TEXT("Local"));
+		TryRegisterLocalPlayer(SessionName, TEXT("OnCreateSessionComplete"));
 
 		// Verify session state and start it for LAN beacon discovery
 		if (SessionInterface.IsValid())
@@ -368,17 +631,25 @@ void UXrMpGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucc
 			FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName);
 			if (Session)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("  State: %s, bIsLANMatch: %s, Connections: %d/%d"),
+				UE_LOG(LogTemp, Warning, TEXT("  State: %s, bIsLANMatch: %s, BuildUniqueId: %d, Connections: %d/%d"),
 					EOnlineSessionState::ToString(Session->SessionState),
 					Session->SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+					Session->SessionSettings.BuildUniqueId,
 					Session->SessionSettings.NumPublicConnections - Session->NumOpenPublicConnections,
 					Session->SessionSettings.NumPublicConnections);
+				UE_LOG(LogTemp, Warning, TEXT("  Advertise=%s, Presence=%s, Lobbies=%s, VoiceChat=%s, OpenPublic=%d, OwningUserName=%s"),
+					Session->SessionSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"),
+					Session->SessionSettings.bUsesPresence ? TEXT("true") : TEXT("false"),
+					Session->SessionSettings.bUseLobbiesIfAvailable ? TEXT("true") : TEXT("false"),
+					Session->SessionSettings.bUseLobbiesVoiceChatIfAvailable ? TEXT("true") : TEXT("false"),
+					Session->NumOpenPublicConnections,
+					*Session->OwningUserName);
 
-				// Start session to transition Pending → InProgress (enables LAN beacon)
 				if (Session->SessionState == EOnlineSessionState::Pending)
 				{
-					UE_LOG(LogTemp, Warning, TEXT("  Starting session (Pending → InProgress)"));
-					SessionInterface->StartSession(SessionName);
+					UE_LOG(LogTemp, Warning, TEXT("  Deferring StartSession until map load completes"));
+					bPendingStartSessionAfterTravel = true;
+					PendingStartSessionName = SessionName;
 				}
 			}
 		}
@@ -398,16 +669,75 @@ void UXrMpGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucc
 		}
 
 		UE_LOG(LogTemp, Warning, TEXT("ServerTravel → %s"), *TravelURL);
+		UE_LOG(LogTemp, Warning, TEXT("OnCreateSessionComplete: Travel source world=%s, SessionName=%s"),
+			GetWorld() ? *GetWorld()->GetName() : TEXT("<null>"),
+			*SessionName.ToString());
 
 		UWorld* World = GetWorld();
 		if (World)
 		{
+			UE_LOG(LogTemp, Warning, TEXT("OnCreateSessionComplete: Executing ServerTravel on world %s"), *World->GetName());
 			World->ServerTravel(TravelURL);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("OnCreateSessionComplete: No valid world for ServerTravel"));
 		}
 	}
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("Failed to Create Session"));
+	}
+}
+
+void UXrMpGameInstance::OnStartSessionComplete(FName SessionName, bool bWasSuccessful)
+{
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("OnStartSessionComplete: Session=%s, Success=%s"),
+		*SessionName.ToString(),
+		bWasSuccessful ? TEXT("true") : TEXT("false")));
+
+	UE_LOG(LogTemp, Warning, TEXT("OnStartSessionComplete: Session=%s, Success=%s"),
+		*SessionName.ToString(),
+		bWasSuccessful ? TEXT("true") : TEXT("false"));
+
+	if (bEnableLANDiagnostics)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Session %s now in state:"), *SessionName.ToString());
+		if (SessionInterface.IsValid())
+		{
+			if (FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName))
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   State: %s"), EOnlineSessionState::ToString(Session->SessionState));
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   bIsLANMatch: %s"), Session->SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"));
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   BuildUniqueId: %d"), Session->SessionSettings.BuildUniqueId);
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   bShouldAdvertise: %s"), Session->SessionSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"));
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   OpenPublicConnections: %d"), Session->NumOpenPublicConnections);
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   Beacon should now be advertising on port 15000"));
+			}
+		}
+	}
+
+	if (bEnableLANDiagnostics)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Beacon port 15000 should now be active (if state is InProgress)"));
+	}
+
+	if (!SessionInterface.IsValid())
+	{
+		return;
+	}
+
+	if (FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("  SessionState=%s, bIsLANMatch=%s, BuildUniqueId=%d"),
+			EOnlineSessionState::ToString(Session->SessionState),
+			Session->SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+			Session->SessionSettings.BuildUniqueId);
+		UE_LOG(LogTemp, Warning, TEXT("  NumOpenPublicConnections=%d, bShouldAdvertise=%s, bUsesPresence=%s, bUseLobbiesIfAvailable=%s"),
+			Session->NumOpenPublicConnections,
+			Session->SessionSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"),
+			Session->SessionSettings.bUsesPresence ? TEXT("true") : TEXT("false"),
+			Session->SessionSettings.bUseLobbiesIfAvailable ? TEXT("true") : TEXT("false"));
 	}
 }
 
@@ -417,25 +747,42 @@ void UXrMpGameInstance::OnCreateSessionComplete(FName SessionName, bool bWasSucc
 
 void UXrMpGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasSuccessful)
 {
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("OnDestroySessionComplete: Session=%s, Success=%s, PendingRecreate=%s"),
+		*SessionName.ToString(),
+		bWasSuccessful ? TEXT("true") : TEXT("false"),
+		PendingSessionSettings.IsValid() ? TEXT("true") : TEXT("false")));
+
+	UE_LOG(LogTemp, Warning, TEXT("OnDestroySessionComplete: Session=%s, Success=%s, PendingRecreate=%s"),
+		*SessionName.ToString(),
+		bWasSuccessful ? TEXT("true") : TEXT("false"),
+		PendingSessionSettings.IsValid() ? TEXT("true") : TEXT("false"));
+
 	if (bWasSuccessful)
 	{
 		if (PendingSessionSettings.IsValid())
 		{
-			const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
-			if (!LocalPlayer) return;
+			const bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
+			FUniqueNetIdRepl UserId;
+			if (!ResolveLocalSessionUserId(UserId, bUsingEOS, TEXT("OnDestroySessionComplete(CreatePending)")))
+			{
+				return;
+			}
 
-			FUniqueNetIdRepl UserId = LocalPlayer->GetPreferredUniqueNetId();
-			if (!UserId.IsValid()) return;
-
+			UE_LOG(LogTemp, Warning, TEXT("OnDestroySessionComplete: Recreating pending session '%s'"), *PendingSessionName);
 			SessionInterface->CreateSession(*UserId, NAME_GameSession, *PendingSessionSettings);
 			PendingSessionSettings.Reset();
 		}
 		else
 		{
-			APlayerController* PC = GetWorld()->GetFirstPlayerController();
+			APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
 			if (PC)
 			{
+				UE_LOG(LogTemp, Warning, TEXT("OnDestroySessionComplete: Returning to main menu via %s"), *ReturnToMainMenuUrl);
 				PC->ClientTravel(ReturnToMainMenuUrl, ETravelType::TRAVEL_Absolute);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("OnDestroySessionComplete: No PlayerController available for menu travel"));
 			}
 		}
 	}
@@ -448,9 +795,28 @@ void UXrMpGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasSuc
 void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
 {
 	bool bUsingNull = (ActiveNetworkMode == EXrNetworkMode::Local);
+	const bool bUseLanQuery = bUsingNull || bIsLan;
+	UWorld* World = GetWorld();
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("FindSessions: Mode=%s, RequestedLan=%s, EffectiveLan=%s, MaxResults=%d"),
+		bUsingNull ? TEXT("Local(Null)") : TEXT("Online(EOS)"),
+		bIsLan ? TEXT("true") : TEXT("false"),
+		bUseLanQuery ? TEXT("true") : TEXT("false"),
+		MaxSearchResults));
 
-	UE_LOG(LogTemp, Warning, TEXT("FindSessions: Mode=%s, MaxResults=%d"),
-		bUsingNull ? TEXT("Local(Null)") : TEXT("Online(EOS)"), MaxSearchResults);
+	if (bEnableLANDiagnostics)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] FindSessions starting - searching for LAN beacons on port 15000"));
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] World=%s, NetMode=%d, SessionInterfaceValid=%s"),
+			World ? *World->GetName() : TEXT("<null>"),
+			World ? static_cast<int32>(World->GetNetMode()) : -1,
+			SessionInterface.IsValid() ? TEXT("true") : TEXT("false"));
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("FindSessions: Mode=%s, RequestedLan=%s, EffectiveLan=%s, MaxResults=%d"),
+		bUsingNull ? TEXT("Local(Null)") : TEXT("Online(EOS)"),
+		bIsLan ? TEXT("true") : TEXT("false"),
+		bUseLanQuery ? TEXT("true") : TEXT("false"),
+		MaxSearchResults);
 
 	if (!SessionInterface.IsValid() || !GetWorld())
 	{
@@ -460,78 +826,40 @@ void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
 
 	SessionSearch = MakeShareable(new FOnlineSessionSearch());
 	SessionSearch->MaxSearchResults = MaxSearchResults;
-	SessionSearch->bIsLanQuery = bIsLan || bUsingNull;
+	SessionSearch->bIsLanQuery = bUseLanQuery;
 	SessionSearch->PingBucketSize = 100; // Standard for LAN searches
+	UE_LOG(LogTemp, Warning, TEXT("  Search object created: MaxSearchResults=%d, bIsLanQuery=%s, PingBucketSize=%d"),
+		SessionSearch->MaxSearchResults,
+		SessionSearch->bIsLanQuery ? TEXT("true") : TEXT("false"),
+		SessionSearch->PingBucketSize);
+
+	if (bEnableLANDiagnostics && bUseLanQuery)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Null LAN query configured: bIsLanQuery=true, will broadcast on UDP 15000"));
+	}
 
 	if (!bUsingNull)
 	{
 		// EOS-specific query settings
 		SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
 		SessionSearch->QuerySettings.Set(SEARCH_MINSLOTSAVAILABLE, 1, EOnlineComparisonOp::GreaterThanEquals);
+		UE_LOG(LogTemp, Warning, TEXT("  EOS query settings applied: SEARCH_LOBBIES=true, SEARCH_MINSLOTSAVAILABLE>=1"));
 	}
 	// Null subsystem: no extra query settings — LAN beacon doesn't support them
 
-	UE_LOG(LogTemp, Warning, TEXT("  bIsLanQuery=%s"),
-		SessionSearch->bIsLanQuery ? TEXT("true") : TEXT("false"));
-
-	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
-	if (!LocalPlayer)
-	{
-		UE_LOG(LogTemp, Error, TEXT("FindSessions Failed: LocalPlayer is null"));
-		return;
-	}
+	UE_LOG(LogTemp, Warning, TEXT("  bIsLanQuery=%s, PingBucketSize=%d"),
+		SessionSearch->bIsLanQuery ? TEXT("true") : TEXT("false"),
+		SessionSearch->PingBucketSize);
 
 	FUniqueNetIdRepl UserId;
 	bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
-
-	if (bUsingEOS)
+	if (!ResolveLocalSessionUserId(UserId, bUsingEOS, TEXT("FindSessions")))
 	{
-		IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("EOS"));
-		if (OSS)
-		{
-			IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
-			if (Identity.IsValid())
-			{
-				UserId = Identity->GetUniquePlayerId(0);
-			}
-		}
-
-		if (!UserId.IsValid())
-		{
-			UE_LOG(LogTemp, Error, TEXT("FindSessions Failed: Not logged into EOS or UserId invalid. Call LoginOnlineService() first."));
-			return;
-		}
-	}
-	else
-	{
-		UserId = LocalPlayer->GetPreferredUniqueNetId();
-		if (!UserId.IsValid())
-		{
-			UserId = LocalPlayer->GetCachedUniqueNetId();
-		}
-
-		if (!UserId.IsValid())
-		{
-			IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("Null"));
-			if (OSS)
-			{
-				IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
-				if (Identity.IsValid())
-				{
-					UserId = Identity->CreateUniquePlayerId(TEXT("LocalPlayer_0"));
-					UE_LOG(LogTemp, Warning, TEXT("Created dummy user ID for Null subsystem: %s"), *UserId->ToString());
-				}
-			}
-		}
-	}
-
-	if (!UserId.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("FindSessions Failed: UserId is still invalid"));
 		return;
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("Calling FindSessions with UserId: %s"), *UserId->ToString());
+	UE_LOG(LogTemp, Warning, TEXT("FindSessions: Requesting search on subsystem %s"), bUsingNull ? TEXT("Null") : TEXT("EOS"));
 	bIsSearching = true;
 	SessionInterface->FindSessions(*UserId, SessionSearch.ToSharedRef());
 }
@@ -544,6 +872,19 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 {
 	bIsSearching = false;
 	CachedSearchResults.Empty();
+	const int32 NumResults = SessionSearch.IsValid() ? SessionSearch->SearchResults.Num() : 0;
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("OnFindSessionsComplete: Success=%s, Results=%d, SearchState=%d"),
+		bWasSuccessful ? TEXT("true") : TEXT("false"),
+		NumResults,
+		SessionSearch.IsValid() ? static_cast<int32>(SessionSearch->SearchState) : -1));
+
+	if (bEnableLANDiagnostics)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] FindSessions completed - bWasSuccessful=%s, NumResults=%d, SearchState=%d"),
+			bWasSuccessful ? TEXT("true") : TEXT("false"),
+			NumResults,
+			SessionSearch.IsValid() ? static_cast<int32>(SessionSearch->SearchState) : -1);
+	}
 
 	UE_LOG(LogTemp, Warning, TEXT("OnFindSessionsComplete: Mode=%s, bWasSuccessful=%s"),
 		ActiveNetworkMode == EXrNetworkMode::Local ? TEXT("Local") : TEXT("Online"),
@@ -552,6 +893,15 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 	if (bWasSuccessful && SessionSearch.IsValid())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("Found %d sessions"), SessionSearch->SearchResults.Num());
+		UE_LOG(LogTemp, Warning, TEXT("OnFindSessionsComplete: SearchState=%d, bIsLanQuery=%s, PingBucketSize=%d"),
+			static_cast<int32>(SessionSearch->SearchState),
+			SessionSearch->bIsLanQuery ? TEXT("true") : TEXT("false"),
+			SessionSearch->PingBucketSize);
+
+		if (bEnableLANDiagnostics)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Null beacon search returned %d results"), SessionSearch->SearchResults.Num());
+		}
 
 		if (GEngine)
 		{
@@ -559,11 +909,26 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 				FString::Printf(TEXT("Found %d sessions"), SessionSearch->SearchResults.Num()));
 		}
 
-		for (int32 i = 0; i < SessionSearch->SearchResults.Num(); i++)
+		if (bEnableLANDiagnostics && NumResults == 0)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Found 0 sessions - possible causes:"));
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   1. Host session NOT transitioning to InProgress state"));
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   2. Host and client on different subnets (check IP ranges)"));
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   3. Null beacon not binding to correct network adapter"));
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   4. BuildUniqueId mismatch between host and search"));
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   5. UDP broadcast blocked at driver/OS level"));
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Workaround: Use JoinSessionByIP() with host IP address"));
+		}
+
+		for (int32 i = 0; i < NumResults; i++)
 		{
 			const FOnlineSessionSearchResult& Result = SessionSearch->SearchResults[i];
 			FString ServerName;
 			Result.Session.SessionSettings.Get(FName("SERVER_NAME"), ServerName);
+			FString PlayerName;
+			Result.Session.SessionSettings.Get(FName("PLAYER_NAME"), PlayerName);
+			FString MapName;
+			Result.Session.SessionSettings.Get(SETTING_MAPNAME, MapName);
 
 			FXrMpSessionResult BPResult;
 			BPResult.ServerName = ServerName;
@@ -574,14 +939,38 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 			BPResult.SessionIndex = i;
 			CachedSearchResults.Add(BPResult);
 
-			UE_LOG(LogTemp, Warning, TEXT("  [%d] %s (%s) — %d/%d, %dms"),
-				i, *ServerName, *Result.Session.OwningUserName,
-				BPResult.CurrentPlayers, BPResult.MaxPlayers, Result.PingInMs);
+			UE_LOG(LogTemp, Warning, TEXT("  [%d] SessionId=%s, ServerName=%s, Owner=%s, OwnerIdValid=%s, Players=%d/%d, Ping=%dms, LAN=%s, BuildUniqueId=%d"),
+				i,
+				*Result.GetSessionIdStr(),
+				*ServerName,
+				*Result.Session.OwningUserName,
+				Result.Session.OwningUserId.IsValid() ? TEXT("true") : TEXT("false"),
+				BPResult.CurrentPlayers,
+				BPResult.MaxPlayers,
+				Result.PingInMs,
+				Result.Session.SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+				Result.Session.SessionSettings.BuildUniqueId);
+			UE_LOG(LogTemp, Warning, TEXT("      PLAYER_NAME=%s, MAPNAME=%s, Advertise=%s, Presence=%s, Lobbies=%s"),
+				*PlayerName,
+				*MapName,
+				Result.Session.SessionSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"),
+				Result.Session.SessionSettings.bUsesPresence ? TEXT("true") : TEXT("false"),
+				Result.Session.SessionSettings.bUseLobbiesIfAvailable ? TEXT("true") : TEXT("false"));
+
+			if (bEnableLANDiagnostics)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Found session: %s from %s (ping %dms)"), 
+					*ServerName, *Result.Session.OwningUserName, Result.PingInMs);
+			}
 		}
 	}
 	else
 	{
 		UE_LOG(LogTemp, Error, TEXT("FindSessions Failed!"));
+		UE_LOG(LogTemp, Error, TEXT("OnFindSessionsComplete: SessionSearchValid=%s, SearchState=%d, Results=%d"),
+			SessionSearch.IsValid() ? TEXT("true") : TEXT("false"),
+			SessionSearch.IsValid() ? static_cast<int32>(SessionSearch->SearchState) : -1,
+			NumResults);
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red, TEXT("FindSessions Failed!"));
@@ -609,65 +998,33 @@ void UXrMpGameInstance::JoinSession(int32 SessionIndex)
 		return;
 	}
 
-	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
-	if (!LocalPlayer)
-	{
-		UE_LOG(LogTemp, Error, TEXT("JoinSession Failed: LocalPlayer is null"));
-		return;
-	}
-
 	bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
 
 	FUniqueNetIdRepl UserId;
-
-	if (bUsingEOS)
+	if (!ResolveLocalSessionUserId(UserId, bUsingEOS, TEXT("JoinSession")))
 	{
-		IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("EOS"));
-		if (OSS)
-		{
-			IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
-			if (Identity.IsValid())
-			{
-				UserId = Identity->GetUniquePlayerId(0);
-			}
-		}
-
-		if (!UserId.IsValid())
-		{
-			UE_LOG(LogTemp, Error, TEXT("JoinSession Failed: Not logged into EOS or UserId invalid. Call LoginOnlineService() first."));
-			return;
-		}
-	}
-	else
-	{
-		UserId = LocalPlayer->GetPreferredUniqueNetId();
-		if (!UserId.IsValid())
-		{
-			UserId = LocalPlayer->GetCachedUniqueNetId();
-		}
-
-		if (!UserId.IsValid())
-		{
-			IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("Null"));
-			if (OSS)
-			{
-				IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
-				if (Identity.IsValid())
-				{
-					UserId = Identity->CreateUniquePlayerId(TEXT("LocalPlayer_0"));
-				}
-			}
-		}
-	}
-
-	if (!UserId.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("JoinSession Failed: Unable to get valid User ID"));
 		return;
 	}
 
-	UE_LOG(LogTemp, Warning, TEXT("JoinSession: Index=%d, Mode=%s"),
-		SessionIndex, bUsingEOS ? TEXT("Online") : TEXT("Local"));
+	const FOnlineSessionSearchResult& SelectedResult = SessionSearch->SearchResults[SessionIndex];
+	FString ServerName;
+	SelectedResult.Session.SessionSettings.Get(FName("SERVER_NAME"), ServerName);
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("JoinSession: Index=%d, ServerName=%s, Ping=%d, LAN=%s, BuildUniqueId=%d"),
+		SessionIndex,
+		*ServerName,
+		SelectedResult.PingInMs,
+		SelectedResult.Session.SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+		SelectedResult.Session.SessionSettings.BuildUniqueId));
+	UE_LOG(LogTemp, Warning, TEXT("JoinSession: Index=%d, Mode=%s, SessionId=%s, ServerName=%s, Owner=%s, Ping=%d, LAN=%s, BuildUniqueId=%d"),
+		SessionIndex,
+		bUsingEOS ? TEXT("Online") : TEXT("Local"),
+		*SelectedResult.GetSessionIdStr(),
+		*ServerName,
+		*SelectedResult.Session.OwningUserName,
+		SelectedResult.PingInMs,
+		SelectedResult.Session.SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+		SelectedResult.Session.SessionSettings.BuildUniqueId);
+	UE_LOG(LogTemp, Warning, TEXT("JoinSession: Resolved user id = %s"), *UserId->ToString());
 	SessionInterface->JoinSession(*UserId, NAME_GameSession, SessionSearch->SearchResults[SessionIndex]);
 }
 
@@ -677,12 +1034,17 @@ void UXrMpGameInstance::JoinSession(int32 SessionIndex)
 
 void UXrMpGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
 {
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("OnJoinSessionComplete: Session=%s, Result=%d"), *SessionName.ToString(), static_cast<int32>(Result)));
+
+	UE_LOG(LogTemp, Warning, TEXT("OnJoinSessionComplete: Session=%s, Result=%d"), *SessionName.ToString(), static_cast<int32>(Result));
+
 	if (Result == EOnJoinSessionCompleteResult::Success)
 	{
 		FString ConnectInfo;
 		if (SessionInterface->GetResolvedConnectString(SessionName, ConnectInfo))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("Join Success! ConnectInfo: %s"), *ConnectInfo);
+			UE_LOG(LogTemp, Warning, TEXT("OnJoinSessionComplete: Resolved connect string length=%d"), ConnectInfo.Len());
 
 			if (ConnectInfo.IsEmpty())
 			{
@@ -695,6 +1057,7 @@ void UXrMpGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionC
 			{
 				UE_LOG(LogTemp, Warning, TEXT("ClientTravel → %s"), *ConnectInfo);
 				PC->ClientTravel(ConnectInfo, ETravelType::TRAVEL_Absolute);
+				UE_LOG(LogTemp, Warning, TEXT("OnJoinSessionComplete: ClientTravel issued successfully"));
 			}
 			else
 			{
@@ -719,6 +1082,7 @@ void UXrMpGameInstance::OnJoinSessionComplete(FName SessionName, EOnJoinSessionC
 		default: ResultStr = FString::Printf(TEXT("Code: %d"), (int32)Result); break;
 		}
 		UE_LOG(LogTemp, Error, TEXT("Join Failed: %s"), *ResultStr);
+		UE_LOG(LogTemp, Error, TEXT("OnJoinSessionComplete: No travel issued because join failed"));
 		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red,
 			FString::Printf(TEXT("Join Failed: %s"), *ResultStr));
 	}
@@ -768,5 +1132,93 @@ void UXrMpGameInstance::DestroyCurrentSession()
 		UE_LOG(LogTemp, Warning, TEXT("%s session"), bIsOwner ? TEXT("Destroying") : TEXT("Leaving"));
 		SessionInterface->DestroySession(NAME_GameSession);
 	}
+}
+
+void UXrMpGameInstance::JoinSessionByIP(const FString& HostIPAddress, int32 Port)
+{
+	if (HostIPAddress.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("JoinSessionByIP Failed: HostIPAddress is empty"));
+		return;
+	}
+
+	if (Port <= 0 || Port > 65535)
+	{
+		UE_LOG(LogTemp, Error, TEXT("JoinSessionByIP Failed: Port %d is invalid"), Port);
+		return;
+	}
+
+	FString ConnectInfo = FString::Printf(TEXT("%s:%d"), *HostIPAddress, Port);
+	UE_LOG(LogTemp, Warning, TEXT("JoinSessionByIP: Traveling to %s (bypassing LAN discovery)"), *ConnectInfo);
+	UE_LOG(LogTemp, Warning, TEXT("JoinSessionByIP: ActiveNetworkMode=%d, SessionInterfaceValid=%s"),
+		static_cast<uint8>(ActiveNetworkMode),
+		SessionInterface.IsValid() ? TEXT("true") : TEXT("false"));
+
+	APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr;
+	if (PC)
+	{
+		PC->ClientTravel(ConnectInfo, ETravelType::TRAVEL_Absolute);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("JoinSessionByIP Failed: No PlayerController for travel"));
+	}
+}
+
+void UXrMpGameInstance::LogNetworkInterfaces(const TCHAR* Context)
+{
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] === Network Interfaces at %s ==="), Context);
+	
+	FString LocalHostName = FPlatformProcess::ComputerName();
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Computer Name: %s"), *LocalHostName);
+	FString Summary = FString::Printf(TEXT("%s: Computer=%s"), Context, *LocalHostName);
+
+	int32 AdapterCount = 0;
+	int32 IPv4Count = 0;
+	ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (SocketSubsystem)
+	{
+		TArray<TSharedPtr<FInternetAddr>> AdapterAddresses;
+		SocketSubsystem->GetLocalAdapterAddresses(AdapterAddresses);
+		AdapterCount = AdapterAddresses.Num();
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Socket subsystem adapter count: %d"), AdapterCount);
+
+		for (int32 Index = 0; Index < AdapterAddresses.Num(); ++Index)
+		{
+			const TSharedPtr<FInternetAddr>& Address = AdapterAddresses[Index];
+			if (!Address.IsValid())
+			{
+				continue;
+			}
+			const FString AddressText = Address->ToString(false);
+			++IPv4Count;
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   Adapter[%d] IPv4=%s"), Index, *AddressText);
+		}
+
+		bool bCanBindAll = false;
+		if (TSharedPtr<FInternetAddr> HostAddr = SocketSubsystem->GetLocalHostAddr(*GLog, bCanBindAll))
+		{
+			const FString HostAddrText = HostAddr->ToString(false);
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   LocalHostAddr=%s"), *HostAddrText);
+			Summary += FString::Printf(TEXT(", HostIP=%s"), *HostAddrText);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   LocalHostAddr=<unavailable>"));
+		}
+
+		Summary += FString::Printf(TEXT(", Adapters=%d, IPv4=%d"), AdapterCount, IPv4Count);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Socket subsystem unavailable; cannot enumerate adapters"));
+		Summary += TEXT(", SocketSubsystem=<null>");
+	}
+	
+	// Also keep the human-readable check for manual verification.
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] To see all IPs on this machine, run: ipconfig /all"));
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Make sure host and client IPv4 addresses are on SAME SUBNET"));
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Example: 192.168.1.x talks to 192.168.1.y (same /24 network)"));
+	UpdateLANDiagnosticsSummary(Summary);
 }
 

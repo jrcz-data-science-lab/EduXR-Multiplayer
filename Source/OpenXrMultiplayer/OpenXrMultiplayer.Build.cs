@@ -10,7 +10,7 @@ using UnrealBuildTool;
 
 public class OpenXrMultiplayer : ModuleRules
 {
-	public OpenXrMultiplayer(ReadOnlyTargetRules Target) : base(Target)
+	public OpenXrMultiplayer(ReadOnlyTargetRules target) : base(target)
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
@@ -21,6 +21,8 @@ public class OpenXrMultiplayer : ModuleRules
 				"Core",                 // Core types used everywhere
 				"OnlineSubsystem",      // IOnlineSubsystem, IOnlineSessionPtr (XrMpGameInstance.h)
 				"OnlineSubsystemUtils", // OnlineSubsystemUtils.h helpers (XrMpGameInstance.h)
+				"Sockets",              // IP/address enumeration and socket helpers
+				"Networking",           // Network utilities and address types
 				"EnhancedInput",        // UInputAction, FInputActionValue (CustomXrPawn.h)
 				"UMG",					// UWidgetInteractionComponent, UUserWidget, UEditableTextBox (public headers)
 				"HeadMountedDisplay"	// UMotionControllerComponent (public headers)
@@ -38,5 +40,6 @@ public class OpenXrMultiplayer : ModuleRules
 				"InputCore",    // EKeys definitions (EKeys::LeftMouseButton in CustomXrPawn.cpp)
 			}
 		);
+
 	}
 }

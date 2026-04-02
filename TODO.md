@@ -60,8 +60,11 @@ Tracked items that need attention in future versions. These are non-blocking —
 ## 🔴 Bug Fixes — Net Driver / Session *(needs investigation)*
 
 ### LAN Session Not Discoverable (Null Subsystem)
-- [ ] **Currently Testing:** Refined `FOnlineSessionSettings` and `FOnlineSessionSearch` in `XrMpGameInstance.cpp` for more standard LAN behavior (`bIsDedicated`, `bUsesStats`, `PingBucketSize`).
-- [ ] **Steps to reproduce:** Host (Null, LAN=true) on Instance 1 → FindSessions (Null, LAN=true) on Instance 2 on different devices.
+- [ ] **Confirmed:** OSS Null LAN discovery is network-dependent. Works on the same machine / same device pair, but can fail across physical devices depending on the LAN environment.
+- [ ] **Confirmed:** Direct IP join also timed out on the test network, which points to a network-side peer connectivity / isolation issue rather than a pure session-settings bug.
+- [ ] **Next test:** Re-run at home on 2 separate PCVR devices on a trusted private LAN to rule out hotspot / enterprise / client-isolation issues.
+- [ ] **Fallback plan:** Keep `JoinSessionByIP()` available for manual testing, and prioritize EOS or dedicated-server flow for reliable cross-device multiplayer.
+- [ ] **Steps to reproduce:** Host (Null, LAN=true) on Instance 1 → FindSessions (Null, LAN=true) on Instance 2 on different physical devices; verify whether the network allows peer-to-peer UDP/broadcast traffic.
 
 ### Capsule Collision Rework
 - [ ] **Physics launch bug** — Objects colliding with the player capsule still cause the player to fly/move at high speed in certain situations. Investigate remaining `ECR_Block` responses and any residual impulse paths that bypass the overlap-only fix from v0.4.0

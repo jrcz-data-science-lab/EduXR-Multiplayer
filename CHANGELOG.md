@@ -4,6 +4,16 @@ All notable changes to the EduXR Multiplayer Plugin will be documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.6.3] - Unreleased
+
+### Focus
+LAN diagnostics follow-up. OSS Null session setup is functioning, but cross-device discovery is not reliable on the test network. Direct IP join also timed out, pointing to a network-side peer connectivity / isolation issue rather than a pure session-configuration bug.
+
+### Notes
+- Same-machine multiplayer works, which confirms the host/session code path is healthy.
+- Next validation step is home testing on a trusted private LAN with two separate PCVR devices.
+- If discovery remains unreliable on target networks, the long-term path is EOS or dedicated-server matchmaking; keep `JoinSessionByIP()` as a manual fallback for debugging.
+
 ## [0.6.2] - 2026-03-18 (Beta)
 
 ### Status
