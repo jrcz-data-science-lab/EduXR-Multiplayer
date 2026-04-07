@@ -38,6 +38,9 @@ public class OpenXrMultiplayer : ModuleRules
 				"Slate",        // Slate widgets (SButton, SBorder etc. in VrKeyboardWidget.cpp)
 				"SlateCore",    // Slate rendering primitives
 				"InputCore",    // EKeys definitions (EKeys::LeftMouseButton in CustomXrPawn.cpp)
+				"HTTP",         // Dedicated session registry API calls
+				"Json",         // Dedicated API payload parsing
+				"JsonUtilities" // JSON helpers
 			}
 		);
 

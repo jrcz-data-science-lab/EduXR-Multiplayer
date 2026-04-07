@@ -37,6 +37,9 @@ enum class EXrNetworkMode : uint8
 
 	/** Online P2P via OnlineSubsystemEOS — requires EOS login */
 	Online  UMETA(DisplayName = "Online (EOS)"),
+
+	/** Dedicated server discovery via HTTP registry + direct IP connect */
+	Dedicated UMETA(DisplayName = "Dedicated Server"),
 	
 	/** Default uninitialized state */
 	None	UMETA(DisplayName = "None (default)")
@@ -75,6 +78,10 @@ struct FXrMpSessionResult
 	/** Index into the internal search results array — pass to JoinSession() */
 	UPROPERTY(BlueprintReadOnly, Category = "Session")
 	int32 SessionIndex = -1;
+
+	/** Optional resolved connect address (primarily used for dedicated-server rows). */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	FString ConnectAddress;
 };
 
 /** Multicast delegate broadcast when FindSessions completes — bind in Blueprints to update your UI */
@@ -204,6 +211,10 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer")
 	void LoginOnlineService();
+
+	/** Runtime config for dedicated-server registry API (optional if set in BP defaults). */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated")
+	void SetDedicatedServerApiConfig(const FString& InBaseUrl, const FString& InApiToken);
 
 	// ─────────────────────────────────────────────
 	// Properties
@@ -403,9 +414,43 @@ private:
 	/** Log available network interfaces for debugging cross-device discovery. */
 	void LogNetworkInterfaces(const TCHAR* Context);
 
+	/** Log detailed runtime readiness for Null LAN discovery (subsystem, net driver, adapters, command line). */
+	void LogDiscoveryReadiness(const TCHAR* Context, bool bExpectLanBeacon) const;
+
+	/** Log a compact snapshot of a named session state/settings. */
+	void LogSessionSnapshot(const TCHAR* Context, FName SessionName) const;
+
 	/** Delay before StartSession in Local/Null mode to avoid post-travel beacon timing races. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|LAN", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", UIMin = "0.0"))
 	float NullStartSessionDelaySeconds = 0.35f;
+
+	/** Base URL for dedicated-session registry API (example: http://10.0.0.10:8080). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	FString DedicatedApiBaseUrl;
+
+	/** Optional bearer token sent to the dedicated-session registry API. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	FString DedicatedApiToken;
+
+	/** Route used to list dedicated sessions. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	FString DedicatedApiListRoute = TEXT("/sessions");
+
+	/** Route used to request dedicated session creation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	FString DedicatedApiCreateRoute = TEXT("/sessions");
+
+	/** HTTP timeout used for dedicated API requests. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
+	float DedicatedApiTimeoutSeconds = 8.0f;
+
+	/** Fallback dedicated host address used when API is unavailable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	FString DedicatedFallbackHost;
+
+	/** Fallback dedicated host port used when API is unavailable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
+	int32 DedicatedFallbackPort = 7777;
 
 	/** If set, enables verbose Null LAN beacon diagnostics in logs. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|LAN|Debug", meta = (AllowPrivateAccess = "true"))
@@ -421,4 +466,16 @@ private:
 
 	/** Update the cached LAN diagnostics summary string. */
 	void UpdateLANDiagnosticsSummary(const FString& Summary);
+
+	/** Build full URL from base + route for dedicated API calls. */
+	FString BuildDedicatedApiUrl(const FString& Route) const;
+
+	/** Host flow for dedicated mode through API or fallback direct connect. */
+	void HostDedicatedSession(int32 MaxPlayers, const FString& ServerName);
+
+	/** Find flow for dedicated mode through API or fallback static endpoint row. */
+	void FindDedicatedSessions(int32 MaxSearchResults);
+
+	/** Connect strings returned by dedicated discovery rows (matches CachedSearchResults index). */
+	TArray<FString> CachedDedicatedConnectStrings;
 };

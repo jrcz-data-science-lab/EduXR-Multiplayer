@@ -12,6 +12,14 @@
 #include "OnlineSubsystemUtils.h"
 #include "Engine/GameEngine.h"
 #include "SocketSubsystem.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
+#include "GenericPlatform/GenericPlatformHttp.h"
+#include "HttpModule.h"
+#include "Interfaces/IHttpRequest.h"
+#include "Interfaces/IHttpResponse.h"
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonSerializer.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
 
@@ -78,8 +86,12 @@ void UXrMpGameInstance::SetNetworkMode(EXrNetworkMode NewMode)
 {
 	if (NewMode == ActiveNetworkMode)
 	{
-		UE_LOG(LogTemp, Log, TEXT("SetNetworkMode: Already in %s mode, no change needed"),
-			NewMode == EXrNetworkMode::Local ? TEXT("Local") : TEXT("Online"));
+		const TCHAR* ModeText =
+			NewMode == EXrNetworkMode::Local ? TEXT("Local") :
+			NewMode == EXrNetworkMode::Online ? TEXT("Online") :
+			NewMode == EXrNetworkMode::Dedicated ? TEXT("Dedicated") :
+			TEXT("None");
+		UE_LOG(LogTemp, Log, TEXT("SetNetworkMode: Already in %s mode, no change needed"), ModeText);
 		return;
 	}
 
@@ -94,12 +106,56 @@ void UXrMpGameInstance::SetNetworkMode(EXrNetworkMode NewMode)
 		bIsLoggedIntoEOS = false;
 		ActivateSubsystem(FName(TEXT("Null")));
 	}
-	else // Online
+	else if (NewMode == EXrNetworkMode::Online)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("SetNetworkMode → Online (EOS subsystem)"));
 		UE_LOG(LogTemp, Warning, TEXT("  Call LoginOnlineService() to authenticate before hosting/finding sessions"));
 		ActivateSubsystem(FName(TEXT("EOS")));
 	}
+	else if (NewMode == EXrNetworkMode::Dedicated)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SetNetworkMode → Dedicated (HTTP registry + direct IP connect)"));
+		bIsLoggedIntoEOS = false;
+		// Dedicated flow uses HTTP discovery + direct IP travel; keep IpNetDriver via Null.
+		ActivateSubsystem(FName(TEXT("Null")));
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SetNetworkMode → None (idle)"));
+		bIsLoggedIntoEOS = false;
+		ActivateSubsystem(FName(TEXT("Null")));
+	}
+}
+
+void UXrMpGameInstance::SetDedicatedServerApiConfig(const FString& InBaseUrl, const FString& InApiToken)
+{
+	DedicatedApiBaseUrl = InBaseUrl;
+	DedicatedApiToken = InApiToken;
+	UE_LOG(LogTemp, Warning, TEXT("SetDedicatedServerApiConfig: BaseUrl=%s, TokenSet=%s"),
+		*DedicatedApiBaseUrl,
+		DedicatedApiToken.IsEmpty() ? TEXT("false") : TEXT("true"));
+}
+
+FString UXrMpGameInstance::BuildDedicatedApiUrl(const FString& Route) const
+{
+	if (DedicatedApiBaseUrl.IsEmpty())
+	{
+		return FString();
+	}
+
+	FString Base = DedicatedApiBaseUrl;
+	while (Base.EndsWith(TEXT("/")))
+	{
+		Base.LeftChopInline(1, false);
+	}
+
+	FString NormalizedRoute = Route;
+	if (!NormalizedRoute.StartsWith(TEXT("/")))
+	{
+		NormalizedRoute = TEXT("/") + NormalizedRoute;
+	}
+
+	return Base + NormalizedRoute;
 }
 
 // ═══════════════════════════════════════════════════
@@ -400,7 +456,7 @@ void UXrMpGameInstance::LoginOnlineService()
 {
 	if (ActiveNetworkMode != EXrNetworkMode::Online)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("LoginOnlineService: Ignored — current mode is Local. Call SetNetworkMode(Online) first."));
+		UE_LOG(LogTemp, Warning, TEXT("LoginOnlineService: Ignored — current mode is not Online. Call SetNetworkMode(Online) first."));
 		return;
 	}
 
@@ -478,9 +534,19 @@ void UXrMpGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful,
 
 void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString ServerName)
 {
+	if (ActiveNetworkMode == EXrNetworkMode::Dedicated)
+	{
+		HostDedicatedSession(MaxPlayers, ServerName);
+		return;
+	}
+
 	bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
 	const bool bUseLanMatch = !bUsingEOS;
 	UWorld* World = GetWorld();
+	if (bEnableLANDiagnostics)
+	{
+		LogDiscoveryReadiness(TEXT("HostSession"), bUseLanMatch);
+	}
 	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostSession: Mode=%s, RequestedLan=%s, EffectiveLan=%s, MaxPlayers=%d, ServerName=%s"),
 		bUsingEOS ? TEXT("Online(EOS)") : TEXT("Local(Null)"),
 		bIsLan ? TEXT("true") : TEXT("false"),
@@ -602,6 +668,290 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 	SessionInterface->CreateSession(*UserId, NAME_GameSession, *SessionSettings);
 }
 
+void UXrMpGameInstance::HostDedicatedSession(int32 MaxPlayers, const FString& ServerName)
+{
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, MaxPlayers));
+	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, MaxPlayers);
+
+	const FString CreateUrl = BuildDedicatedApiUrl(DedicatedApiCreateRoute);
+	if (CreateUrl.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: DedicatedApiBaseUrl is empty, using fallback host if configured"));
+		if (!DedicatedFallbackHost.IsEmpty())
+		{
+			JoinSessionByIP(DedicatedFallbackHost, DedicatedFallbackPort);
+		}
+		return;
+	}
+
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(CreateUrl);
+	Request->SetVerb(TEXT("POST"));
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("Accept"), TEXT("application/json"));
+	if (!DedicatedApiToken.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *DedicatedApiToken));
+	}
+	Request->SetTimeout(DedicatedApiTimeoutSeconds);
+
+	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("serverName"), ServerName);
+	Payload->SetNumberField(TEXT("maxPlayers"), MaxPlayers);
+	Payload->SetStringField(TEXT("map"), MapUrl);
+	Payload->SetNumberField(TEXT("buildUniqueId"), 1);
+	Payload->SetStringField(TEXT("mode"), TEXT("dedicated"));
+
+	FString PayloadJson;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&PayloadJson);
+	FJsonSerializer::Serialize(Payload, Writer);
+	Request->SetContentAsString(PayloadJson);
+
+	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
+	Request->OnProcessRequestComplete().BindLambda(
+		[WeakThis](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+		{
+			if (!WeakThis.IsValid())
+			{
+				return;
+			}
+
+			UXrMpGameInstance* Self = WeakThis.Get();
+			const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+			UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: API response bSucceeded=%s, Status=%d"),
+				bSucceeded ? TEXT("true") : TEXT("false"),
+				StatusCode);
+
+			if (!bSucceeded || !HttpResponse.IsValid() || !EHttpResponseCodes::IsOk(StatusCode))
+			{
+				UE_LOG(LogTemp, Error, TEXT("HostDedicatedSession: Create request failed. Body=%s"),
+					HttpResponse.IsValid() ? *HttpResponse->GetContentAsString() : TEXT("<no response>"));
+				return;
+			}
+
+			FString ConnectString;
+			TSharedPtr<FJsonObject> JsonResponse;
+			const FString ResponseBody = HttpResponse->GetContentAsString();
+			TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseBody);
+			if (FJsonSerializer::Deserialize(Reader, JsonResponse) && JsonResponse.IsValid())
+			{
+				if (!JsonResponse->TryGetStringField(TEXT("connectString"), ConnectString))
+				{
+					FString Address;
+					int32 Port = Self->DedicatedFallbackPort;
+					JsonResponse->TryGetStringField(TEXT("connectAddress"), Address);
+					if (Address.IsEmpty())
+					{
+						JsonResponse->TryGetStringField(TEXT("address"), Address);
+					}
+					JsonResponse->TryGetNumberField(TEXT("connectPort"), Port);
+					if (!Address.IsEmpty())
+					{
+						ConnectString = FString::Printf(TEXT("%s:%d"), *Address, Port);
+					}
+				}
+			}
+
+			if (ConnectString.IsEmpty() && !Self->DedicatedFallbackHost.IsEmpty())
+			{
+				ConnectString = FString::Printf(TEXT("%s:%d"), *Self->DedicatedFallbackHost, Self->DedicatedFallbackPort);
+			}
+
+			if (ConnectString.IsEmpty())
+			{
+				UE_LOG(LogTemp, Error, TEXT("HostDedicatedSession: API succeeded but no connect string was returned."));
+				return;
+			}
+
+			UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: Traveling host to dedicated endpoint %s"), *ConnectString);
+			if (APlayerController* PC = Self->GetWorld() ? Self->GetWorld()->GetFirstPlayerController() : nullptr)
+			{
+				PC->ClientTravel(ConnectString, ETravelType::TRAVEL_Absolute);
+			}
+		});
+
+	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: POST %s"), *CreateUrl);
+	Request->ProcessRequest();
+}
+
+void UXrMpGameInstance::FindDedicatedSessions(int32 MaxSearchResults)
+{
+	bIsSearching = true;
+	CachedSearchResults.Empty();
+	CachedDedicatedConnectStrings.Empty();
+
+	const FString ListUrl = BuildDedicatedApiUrl(DedicatedApiListRoute);
+	if (ListUrl.IsEmpty())
+	{
+		if (!DedicatedFallbackHost.IsEmpty())
+		{
+			FXrMpSessionResult FallbackRow;
+			FallbackRow.ServerName = TEXT("Dedicated Server");
+			FallbackRow.OwnerName = TEXT("On-Prem Server");
+			FallbackRow.CurrentPlayers = 0;
+			FallbackRow.MaxPlayers = 64;
+			FallbackRow.PingInMs = -1;
+			FallbackRow.SessionIndex = 0;
+			FallbackRow.ConnectAddress = FString::Printf(TEXT("%s:%d"), *DedicatedFallbackHost, DedicatedFallbackPort);
+			CachedSearchResults.Add(FallbackRow);
+			CachedDedicatedConnectStrings.Add(FallbackRow.ConnectAddress);
+			UE_LOG(LogTemp, Warning, TEXT("FindDedicatedSessions: API URL missing, exposing fallback row %s"), *FallbackRow.ConnectAddress);
+		}
+
+		bIsSearching = false;
+		OnFindSessionsComplete_BP.Broadcast(CachedSearchResults, CachedSearchResults.Num() > 0);
+		return;
+	}
+
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(ListUrl);
+	Request->SetVerb(TEXT("GET"));
+	Request->SetHeader(TEXT("Accept"), TEXT("application/json"));
+	if (!DedicatedApiToken.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *DedicatedApiToken));
+	}
+	Request->SetTimeout(DedicatedApiTimeoutSeconds);
+
+	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
+	Request->OnProcessRequestComplete().BindLambda(
+		[WeakThis, MaxSearchResults](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+		{
+			if (!WeakThis.IsValid())
+			{
+				return;
+			}
+
+			UXrMpGameInstance* Self = WeakThis.Get();
+			Self->bIsSearching = false;
+
+			const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+			UE_LOG(LogTemp, Warning, TEXT("FindDedicatedSessions: API response bSucceeded=%s, Status=%d"),
+				bSucceeded ? TEXT("true") : TEXT("false"),
+				StatusCode);
+
+			if (!bSucceeded || !HttpResponse.IsValid() || !EHttpResponseCodes::IsOk(StatusCode))
+			{
+				UE_LOG(LogTemp, Error, TEXT("FindDedicatedSessions: Request failed. Body=%s"),
+					HttpResponse.IsValid() ? *HttpResponse->GetContentAsString() : TEXT("<no response>"));
+				Self->OnFindSessionsComplete_BP.Broadcast(Self->CachedSearchResults, false);
+				return;
+			}
+
+			Self->CachedSearchResults.Empty();
+			Self->CachedDedicatedConnectStrings.Empty();
+
+			const FString ResponseBody = HttpResponse->GetContentAsString();
+			TArray<TSharedPtr<FJsonValue>> SessionRows;
+			TSharedPtr<FJsonObject> RootObject;
+			TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(ResponseBody);
+			if (FJsonSerializer::Deserialize(Reader, RootObject) && RootObject.IsValid())
+			{
+				const TArray<TSharedPtr<FJsonValue>>* SessionsField = nullptr;
+				if (RootObject->TryGetArrayField(TEXT("sessions"), SessionsField) && SessionsField)
+				{
+					SessionRows = *SessionsField;
+				}
+			}
+			else
+			{
+				Reader = TJsonReaderFactory<>::Create(ResponseBody);
+				FJsonSerializer::Deserialize(Reader, SessionRows);
+			}
+
+			auto ResolveIntField = [](const TSharedPtr<FJsonObject>& Obj, const TCHAR* FieldName, int32 DefaultValue)
+			{
+				int32 IntValue = DefaultValue;
+				if (!Obj.IsValid())
+				{
+					return IntValue;
+				}
+
+				Obj->TryGetNumberField(FieldName, IntValue);
+				FString AsString;
+				if (Obj->TryGetStringField(FieldName, AsString) && !AsString.IsEmpty())
+				{
+					IntValue = FCString::Atoi(*AsString);
+				}
+				return IntValue;
+			};
+
+			int32 AddedCount = 0;
+			for (const TSharedPtr<FJsonValue>& RowValue : SessionRows)
+			{
+				if (!RowValue.IsValid() || AddedCount >= MaxSearchResults)
+				{
+					continue;
+				}
+
+				const TSharedPtr<FJsonObject> RowObject = RowValue->AsObject();
+				if (!RowObject.IsValid())
+				{
+					continue;
+				}
+
+				FString ServerName;
+				if (!RowObject->TryGetStringField(TEXT("serverName"), ServerName))
+				{
+					RowObject->TryGetStringField(TEXT("name"), ServerName);
+				}
+				if (ServerName.IsEmpty())
+				{
+					ServerName = TEXT("Dedicated Server");
+				}
+
+				FString OwnerName;
+				if (!RowObject->TryGetStringField(TEXT("ownerName"), OwnerName))
+				{
+					OwnerName = TEXT("On-Prem Server");
+				}
+
+				FString ConnectString;
+				if (!RowObject->TryGetStringField(TEXT("connectString"), ConnectString))
+				{
+					FString Address;
+					int32 Port = ResolveIntField(RowObject, TEXT("port"), Self->DedicatedFallbackPort);
+					if (!RowObject->TryGetStringField(TEXT("connectAddress"), Address))
+					{
+						if (!RowObject->TryGetStringField(TEXT("address"), Address))
+						{
+							RowObject->TryGetStringField(TEXT("host"), Address);
+						}
+					}
+					Port = ResolveIntField(RowObject, TEXT("connectPort"), Port);
+					if (!Address.IsEmpty())
+					{
+						ConnectString = FString::Printf(TEXT("%s:%d"), *Address, Port);
+					}
+				}
+
+				if (ConnectString.IsEmpty())
+				{
+					continue;
+				}
+
+				FXrMpSessionResult ResultRow;
+				ResultRow.ServerName = ServerName;
+				ResultRow.OwnerName = OwnerName;
+				ResultRow.CurrentPlayers = ResolveIntField(RowObject, TEXT("currentPlayers"), 0);
+				ResultRow.MaxPlayers = ResolveIntField(RowObject, TEXT("maxPlayers"), 64);
+				ResultRow.PingInMs = ResolveIntField(RowObject, TEXT("pingMs"), -1);
+				ResultRow.SessionIndex = Self->CachedSearchResults.Num();
+				ResultRow.ConnectAddress = ConnectString;
+
+				Self->CachedDedicatedConnectStrings.Add(ConnectString);
+				Self->CachedSearchResults.Add(ResultRow);
+				++AddedCount;
+			}
+
+			UE_LOG(LogTemp, Warning, TEXT("FindDedicatedSessions: Parsed %d session rows"), Self->CachedSearchResults.Num());
+			Self->OnFindSessionsComplete_BP.Broadcast(Self->CachedSearchResults, true);
+		});
+
+	UE_LOG(LogTemp, Warning, TEXT("FindDedicatedSessions: GET %s"), *ListUrl);
+	Request->ProcessRequest();
+}
+
 // ═══════════════════════════════════════════════════
 // OnCreateSessionComplete
 // ═══════════════════════════════════════════════════
@@ -702,6 +1052,7 @@ void UXrMpGameInstance::OnStartSessionComplete(FName SessionName, bool bWasSucce
 
 	if (bEnableLANDiagnostics)
 	{
+		LogDiscoveryReadiness(TEXT("OnStartSessionComplete"), ActiveNetworkMode == EXrNetworkMode::Local);
 		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Session %s now in state:"), *SessionName.ToString());
 		if (SessionInterface.IsValid())
 		{
@@ -738,6 +1089,11 @@ void UXrMpGameInstance::OnStartSessionComplete(FName SessionName, bool bWasSucce
 			Session->SessionSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"),
 			Session->SessionSettings.bUsesPresence ? TEXT("true") : TEXT("false"),
 			Session->SessionSettings.bUseLobbiesIfAvailable ? TEXT("true") : TEXT("false"));
+	}
+
+	if (bEnableLANDiagnostics)
+	{
+		LogSessionSnapshot(TEXT("OnStartSessionComplete"), SessionName);
 	}
 }
 
@@ -794,9 +1150,21 @@ void UXrMpGameInstance::OnDestroySessionComplete(FName SessionName, bool bWasSuc
 
 void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
 {
+	if (ActiveNetworkMode == EXrNetworkMode::Dedicated)
+	{
+		FindDedicatedSessions(MaxSearchResults);
+		return;
+	}
+
+	CachedDedicatedConnectStrings.Empty();
+
 	bool bUsingNull = (ActiveNetworkMode == EXrNetworkMode::Local);
 	const bool bUseLanQuery = bUsingNull || bIsLan;
 	UWorld* World = GetWorld();
+	if (bEnableLANDiagnostics)
+	{
+		LogDiscoveryReadiness(TEXT("FindSessions"), bUseLanQuery);
+	}
 	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("FindSessions: Mode=%s, RequestedLan=%s, EffectiveLan=%s, MaxResults=%d"),
 		bUsingNull ? TEXT("Local(Null)") : TEXT("Online(EOS)"),
 		bIsLan ? TEXT("true") : TEXT("false"),
@@ -986,6 +1354,27 @@ void UXrMpGameInstance::OnFindSessionsComplete(bool bWasSuccessful)
 
 void UXrMpGameInstance::JoinSession(int32 SessionIndex)
 {
+	if (ActiveNetworkMode == EXrNetworkMode::Dedicated)
+	{
+		if (!CachedDedicatedConnectStrings.IsValidIndex(SessionIndex))
+		{
+			UE_LOG(LogTemp, Error, TEXT("JoinSession (Dedicated) Failed: Invalid SessionIndex %d"), SessionIndex);
+			return;
+		}
+
+		const FString ConnectString = CachedDedicatedConnectStrings[SessionIndex];
+		UE_LOG(LogTemp, Warning, TEXT("JoinSession (Dedicated): SessionIndex=%d, Connect=%s"), SessionIndex, *ConnectString);
+		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+		{
+			PC->ClientTravel(ConnectString, ETravelType::TRAVEL_Absolute);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Error, TEXT("JoinSession (Dedicated) Failed: No PlayerController for travel"));
+		}
+		return;
+	}
+
 	if (!SessionInterface.IsValid() || !SessionSearch.IsValid())
 	{
 		UE_LOG(LogTemp, Error, TEXT("JoinSession Failed: SessionInterface or SessionSearch is invalid"));
@@ -1220,5 +1609,117 @@ void UXrMpGameInstance::LogNetworkInterfaces(const TCHAR* Context)
 	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Make sure host and client IPv4 addresses are on SAME SUBNET"));
 	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Example: 192.168.1.x talks to 192.168.1.y (same /24 network)"));
 	UpdateLANDiagnosticsSummary(Summary);
+}
+
+void UXrMpGameInstance::LogDiscoveryReadiness(const TCHAR* Context, bool bExpectLanBeacon) const
+{
+	const TCHAR* ModeText =
+		ActiveNetworkMode == EXrNetworkMode::Local ? TEXT("Local") :
+		ActiveNetworkMode == EXrNetworkMode::Online ? TEXT("Online") :
+		ActiveNetworkMode == EXrNetworkMode::Dedicated ? TEXT("Dedicated") :
+		TEXT("None");
+
+	IOnlineSubsystem* DefaultOSS = IOnlineSubsystem::Get();
+	IOnlineSubsystem* NullOSS = IOnlineSubsystem::Get(TEXT("Null"));
+	IOnlineSubsystem* EosOSS = IOnlineSubsystem::Get(TEXT("EOS"));
+
+	FString MultiHomeArg;
+	const bool bHasMultiHome = FParse::Value(FCommandLine::Get(), TEXT("MULTIHOME="), MultiHomeArg);
+
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] === DiscoveryReadiness @ %s ==="), Context);
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Mode=%s, ExpectLanBeacon=%s, SessionInterfaceValid=%s"),
+		ModeText,
+		bExpectLanBeacon ? TEXT("true") : TEXT("false"),
+		SessionInterface.IsValid() ? TEXT("true") : TEXT("false"));
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] OSS default=%s, Null=%s, EOS=%s"),
+		DefaultOSS ? *DefaultOSS->GetSubsystemName().ToString() : TEXT("<null>"),
+		NullOSS ? *NullOSS->GetSubsystemName().ToString() : TEXT("<null>"),
+		EosOSS ? *EosOSS->GetSubsystemName().ToString() : TEXT("<null>"));
+
+	if (const UGameEngine* GameEngine = Cast<UGameEngine>(GEngine))
+	{
+		bool bFoundGameNetDriver = false;
+		for (const FNetDriverDefinition& NetDriverDef : GameEngine->NetDriverDefinitions)
+		{
+			if (NetDriverDef.DefName == NAME_GameNetDriver)
+			{
+				bFoundGameNetDriver = true;
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] GameNetDriver DriverClass=%s, Fallback=%s"),
+					*NetDriverDef.DriverClassName.ToString(),
+					*NetDriverDef.DriverClassNameFallback.ToString());
+				break;
+			}
+		}
+
+		if (!bFoundGameNetDriver)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] GameNetDriver definition not found in UGameEngine::NetDriverDefinitions"));
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] GEngine is not a UGameEngine; cannot inspect net driver definitions"));
+	}
+
+	ISocketSubsystem* SocketSubsystem = ISocketSubsystem::Get(PLATFORM_SOCKETSUBSYSTEM);
+	if (SocketSubsystem)
+	{
+		TArray<TSharedPtr<FInternetAddr>> AdapterAddresses;
+		SocketSubsystem->GetLocalAdapterAddresses(AdapterAddresses);
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] AdapterCount=%d"), AdapterAddresses.Num());
+
+		for (int32 Index = 0; Index < AdapterAddresses.Num(); ++Index)
+		{
+			if (AdapterAddresses[Index].IsValid())
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   Adapter[%d]=%s"), Index, *AdapterAddresses[Index]->ToString(false));
+			}
+		}
+
+		if (bExpectLanBeacon && AdapterAddresses.Num() > 1 && !bHasMultiHome)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Multiple adapters detected and -MULTIHOME is missing; LAN beacon may bind to a non-LAN adapter."));
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] CommandLine MULTIHOME=%s"), bHasMultiHome ? *MultiHomeArg : TEXT("<not set>"));
+
+	if (bExpectLanBeacon)
+	{
+		if (ActiveNetworkMode != EXrNetworkMode::Local)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] ExpectLanBeacon=true but mode is not Local/Null."));
+		}
+
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] Null LAN discovery path uses UDP beacon broadcast on port 15000 and game traffic on 7777."));
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] If direct IP works but browser is empty, discovery broadcast routing/firewall/adapter selection is still the likely issue."));
+	}
+}
+
+void UXrMpGameInstance::LogSessionSnapshot(const TCHAR* Context, FName SessionName) const
+{
+	if (!SessionInterface.IsValid())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] %s: SessionInterface invalid; snapshot skipped"), Context);
+		return;
+	}
+
+	const FNamedOnlineSession* Session = SessionInterface->GetNamedSession(SessionName);
+	if (!Session)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] %s: Session %s not found"), Context, *SessionName.ToString());
+		return;
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] %s: Session=%s, State=%s, LAN=%s, Advertise=%s, Presence=%s, BuildUniqueId=%d, OpenPublic=%d/%d"),
+		Context,
+		*SessionName.ToString(),
+		EOnlineSessionState::ToString(Session->SessionState),
+		Session->SessionSettings.bIsLANMatch ? TEXT("true") : TEXT("false"),
+		Session->SessionSettings.bShouldAdvertise ? TEXT("true") : TEXT("false"),
+		Session->SessionSettings.bUsesPresence ? TEXT("true") : TEXT("false"),
+		Session->SessionSettings.BuildUniqueId,
+		Session->NumOpenPublicConnections,
+		Session->SessionSettings.NumPublicConnections);
 }
 

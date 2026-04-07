@@ -242,6 +242,50 @@ If you want online multiplayer with EOS:
 3. Call `Login Online Service` before hosting/finding sessions
 4. The plugin will automatically switch to EOS networking
 
+### Dedicated Server (On-Prem Linux)
+
+Use `SetNetworkMode(Dedicated)` when clients should discover and join sessions hosted on your own server infrastructure.
+
+- Dedicated mode does **not** use Null LAN beacon discovery.
+- `HostSession()` sends a `POST` request to your registry API (`DedicatedApiBaseUrl + DedicatedApiCreateRoute`).
+- `FindSessions()` sends a `GET` request to your registry API (`DedicatedApiBaseUrl + DedicatedApiListRoute`).
+- `JoinSession()` travels to the returned `connectString` (or `address:port`).
+
+Expected `GET /sessions` response shape (object or bare array are both supported):
+
+```json
+{
+  "sessions": [
+    {
+      "serverName": "Room A",
+      "ownerName": "On-Prem Server",
+      "currentPlayers": 3,
+      "maxPlayers": 16,
+      "pingMs": 12,
+      "connectString": "10.0.0.25:7777"
+    }
+  ]
+}
+```
+
+Expected `POST /sessions` request body:
+
+```json
+{
+  "serverName": "Teacher Session",
+  "maxPlayers": 16,
+  "map": "/Game/VRTemplate/VRTemplateMap?listen",
+  "buildUniqueId": 1,
+  "mode": "dedicated"
+}
+```
+
+`POST /sessions` should return either `connectString` or `connectAddress` + `connectPort`.
+
+### Session Registry Tooling
+
+For the full Python registry backend, heartbeat sidecar, admin panel, and test commands, see `Plugins/OpenXrMultiplayer/Tools/SessionRegistry/README.md`.
+
 ## API Reference
 
 ### Session Management (XrMpGameInstance)

@@ -66,6 +66,20 @@ Tracked items that need attention in future versions. These are non-blocking —
 - [ ] **Fallback plan:** Keep `JoinSessionByIP()` available for manual testing, and prioritize EOS or dedicated-server flow for reliable cross-device multiplayer.
 - [ ] **Steps to reproduce:** Host (Null, LAN=true) on Instance 1 → FindSessions (Null, LAN=true) on Instance 2 on different physical devices; verify whether the network allows peer-to-peer UDP/broadcast traffic.
 
+### Dedicated Server Flow (On-Prem Linux)
+- [x] Added `EXrNetworkMode::Dedicated` in `XrMpGameInstance`.
+- [x] Added dedicated discovery/host API hooks in `XrMpGameInstance` (`DedicatedApiBaseUrl`, token, routes, timeout, fallback host/port).
+- [x] Added dedicated-mode `HostSession` and `FindSessions` paths (HTTP registry + direct-connect join).
+- [x] Added dedicated-mode `JoinSession` support using per-row connect string.
+- [x] Added `OpenXrMpServer.Target.cs` for Linux dedicated server builds.
+- [x] Confirmed current behavior: API registration alone only creates discoverable rows; clients cannot join unless the actual UE dedicated server process is running and listening on the advertised address/port.
+- [ ] Define and freeze backend API contract (`GET /sessions`, `POST /sessions`, response fields: connectString/address/port, population).
+- [ ] Implement Linux-side session registry service (or integrate existing control plane) and wire auth.
+- [ ] Add server health heartbeat + stale session cleanup policy.
+- [ ] Build/package `OpenXrMpServer` for Linux and validate server process startup (`-port=7777`) on Ubuntu.
+- [ ] Validate end-to-end with real runtime chain: UE dedicated server up -> heartbeat registration running -> session listed -> client join succeeds.
+- [ ] Validate end-to-end on two physical Windows clients + one Ubuntu server in the target venue network.
+
 ### Capsule Collision Rework
 - [ ] **Physics launch bug** — Objects colliding with the player capsule still cause the player to fly/move at high speed in certain situations. Investigate remaining `ECR_Block` responses and any residual impulse paths that bypass the overlap-only fix from v0.4.0
 - [ ] **Remove `PhysicsPushForce` / impulse-on-overlap** — The capsule's normal physics behaviour should be sufficient to push objects out of the way. The manual impulse applied in `OnCapsuleOverlap` is redundant and may be contributing to the launch bug — remove it and let the engine handle separation naturally
@@ -82,5 +96,5 @@ Tracked items that need attention in future versions. These are non-blocking —
 
 ---
 
-*Last updated: 2026-03-20 (v0.6.2 prep)*
+*Last updated: 2026-04-07 (v0.6.3 WIP)*
 
