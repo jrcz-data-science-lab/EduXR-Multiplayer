@@ -532,11 +532,11 @@ void UXrMpGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful,
 // Host Session
 // ═══════════════════════════════════════════════════
 
-void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString ServerName)
+void UXrMpGameInstance::HostSession(int32 InMaxPlayers, bool bIsLan, FString ServerName)
 {
 	if (ActiveNetworkMode == EXrNetworkMode::Dedicated)
 	{
-		HostDedicatedSession(MaxPlayers, ServerName);
+		HostDedicatedSession(InMaxPlayers, ServerName);
 		return;
 	}
 
@@ -551,7 +551,7 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 		bUsingEOS ? TEXT("Online(EOS)") : TEXT("Local(Null)"),
 		bIsLan ? TEXT("true") : TEXT("false"),
 		bUseLanMatch ? TEXT("true") : TEXT("false"),
-		MaxPlayers,
+		InMaxPlayers,
 		*ServerName));
 
 	if (bEnableLANDiagnostics)
@@ -573,7 +573,7 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 		bUsingEOS ? TEXT("Online(EOS)") : TEXT("Local(Null)"),
 		bIsLan ? TEXT("true") : TEXT("false"),
 		bUseLanMatch ? TEXT("true") : TEXT("false"),
-		MaxPlayers, *ServerName);
+		InMaxPlayers, *ServerName);
 	UE_LOG(LogTemp, Warning, TEXT("HostSession: ActiveNetworkMode=%d, SessionInterfaceValid=%s, World=%s"),
 		static_cast<uint8>(ActiveNetworkMode),
 		SessionInterface.IsValid() ? TEXT("true") : TEXT("false"),
@@ -592,7 +592,7 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 
 	// Prepare Session Settings
 	TSharedPtr<FOnlineSessionSettings> SessionSettings = MakeShareable(new FOnlineSessionSettings());
-	SessionSettings->NumPublicConnections = MaxPlayers;
+	SessionSettings->NumPublicConnections = InMaxPlayers;
 	SessionSettings->bShouldAdvertise = true;
 	SessionSettings->bAllowJoinInProgress = true;
 	SessionSettings->bIsLANMatch = bUseLanMatch;
@@ -610,9 +610,9 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 		SessionSettings->BuildUniqueId = 1;
 	}
 
-	if (bUsingEOS && MaxPlayers > 16 && SessionSettings->bUseLobbiesVoiceChatIfAvailable)
+	if (bUsingEOS && InMaxPlayers > 16 && SessionSettings->bUseLobbiesVoiceChatIfAvailable)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("MaxPlayers (%d) > 16, disabling lobby voice chat"), MaxPlayers);
+		UE_LOG(LogTemp, Warning, TEXT("MaxPlayers (%d) > 16, disabling lobby voice chat"), InMaxPlayers);
 		SessionSettings->bUseLobbiesVoiceChatIfAvailable = false;
 	}
 
@@ -668,10 +668,10 @@ void UXrMpGameInstance::HostSession(int32 MaxPlayers, bool bIsLan, FString Serve
 	SessionInterface->CreateSession(*UserId, NAME_GameSession, *SessionSettings);
 }
 
-void UXrMpGameInstance::HostDedicatedSession(int32 MaxPlayers, const FString& ServerName)
+void UXrMpGameInstance::HostDedicatedSession(int32 InMaxPlayers, const FString& ServerName)
 {
-	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, MaxPlayers));
-	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, MaxPlayers);
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, InMaxPlayers));
+	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, InMaxPlayers);
 
 	const FString CreateUrl = BuildDedicatedApiUrl(DedicatedApiCreateRoute);
 	if (CreateUrl.IsEmpty())
@@ -697,7 +697,7 @@ void UXrMpGameInstance::HostDedicatedSession(int32 MaxPlayers, const FString& Se
 
 	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
 	Payload->SetStringField(TEXT("serverName"), ServerName);
-	Payload->SetNumberField(TEXT("maxPlayers"), MaxPlayers);
+	Payload->SetNumberField(TEXT("maxPlayers"), InMaxPlayers);
 	Payload->SetStringField(TEXT("map"), MapUrl);
 	Payload->SetNumberField(TEXT("buildUniqueId"), 1);
 	Payload->SetStringField(TEXT("mode"), TEXT("dedicated"));
@@ -1721,5 +1721,370 @@ void UXrMpGameInstance::LogSessionSnapshot(const TCHAR* Context, FName SessionNa
 		Session->SessionSettings.BuildUniqueId,
 		Session->NumOpenPublicConnections,
 		Session->SessionSettings.NumPublicConnections);
+}
+
+// ═══════════════════════════════════════════════════
+// Dedicated Server Registry — Player Count Tracking
+// ═══════════════════════════════════════════════════
+
+bool UXrMpGameInstance::ShouldRunDedicatedRegistryReporting() const
+{
+	// Only run dedicated registry reporting on dedicated server instances
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	// Check if this is a dedicated server (net role is authority, no listening clients in PIE, etc.)
+	bool bIsDedicatedServer = World->IsNetMode(NM_DedicatedServer);
+	
+	// Also check for ListenServer mode if needed (though the user said dedicated-only)
+	// For now, we'll only report on dedicated servers (not listen servers)
+	
+	return bIsDedicatedServer && !SessionRegistryBaseUrl.IsEmpty() && !SessionId.IsEmpty();
+}
+
+void UXrMpGameInstance::RefreshDedicatedRegistryRuntimeConfig()
+{
+	// Best-effort to populate config from command line or environment vars
+	// This is called before heartbeat/reporting starts
+	
+	if (SessionRegistryBaseUrl.IsEmpty())
+	{
+		// Could also check FPlatformMisc::GetEnvironmentVariable(TEXT("SESSION_REGISTRY_BASE_URL"))
+		// For now, rely on Blueprint/config defaults
+	}
+
+	if (SessionRegistryToken.IsEmpty())
+	{
+		// Could check FPlatformMisc::GetEnvironmentVariable(TEXT("SESSION_REGISTRY_TOKEN"))
+	}
+
+	if (SessionId.IsEmpty())
+	{
+		// Try to extract from command line or use a default
+		FString CmdSessionId;
+		if (FParse::Value(FCommandLine::Get(), TEXT("SESSION_ID="), CmdSessionId))
+		{
+			SessionId = CmdSessionId;
+		}
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("RefreshDedicatedRegistryRuntimeConfig: BaseUrl=%s, Token=%s, SessionId=%s, MaxPlayers=%d, Address=%s:%d"),
+		*SessionRegistryBaseUrl,
+		SessionRegistryToken.IsEmpty() ? TEXT("<not set>") : TEXT("<set>"),
+		*SessionId,
+		MaxPlayers,
+		*ConnectAddress,
+		ConnectPort);
+}
+
+FString UXrMpGameInstance::BuildSessionRegistryRoute(const FString& Suffix) const
+{
+	if (SessionId.IsEmpty())
+	{
+		return FString();
+	}
+
+	// URL encode the session id to be safe
+	FString EncodedSessionId = FGenericPlatformHttp::UrlEncode(*SessionId);
+	return FString::Printf(TEXT("/sessions/%s%s"), *EncodedSessionId, *Suffix);
+}
+
+TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> UXrMpGameInstance::CreateDedicatedRegistryJsonRequest(const FString& Verb, const FString& Route) const
+{
+	FString FullUrl = BuildDedicatedApiUrl(Route);
+	if (FullUrl.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("CreateDedicatedRegistryJsonRequest: Could not build URL for route %s"), *Route);
+		return nullptr;
+	}
+
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	Request->SetURL(FullUrl);
+	Request->SetVerb(*Verb);
+	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
+	Request->SetHeader(TEXT("Accept"), TEXT("application/json"));
+
+	if (!SessionRegistryToken.IsEmpty())
+	{
+		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *SessionRegistryToken));
+	}
+
+	Request->SetTimeout(DedicatedApiTimeoutSeconds);
+
+	return Request;
+}
+
+void UXrMpGameInstance::NotifyDedicatedPlayerCountChanged(int32 CurrentPlayers)
+{
+	if (!ShouldRunDedicatedRegistryReporting())
+	{
+		return;
+	}
+
+	// Store the pending player count update
+	PendingRegistryCurrentPlayers = FMath::Max(0, CurrentPlayers);
+	PendingRegistryMaxPlayers = MaxPlayers;
+	bPendingRegistryPlayersUpdate = true;
+
+	UE_LOG(LogTemp, Warning, TEXT("NotifyDedicatedPlayerCountChanged: CurrentPlayers=%d, MaxPlayers=%d, SessionId=%s"),
+		PendingRegistryCurrentPlayers,
+		PendingRegistryMaxPlayers,
+		*SessionId);
+
+	// Send the update immediately (do not wait for heartbeat interval)
+	SendDedicatedPlayerCountUpdate();
+}
+
+void UXrMpGameInstance::SendDedicatedPlayerCountUpdate()
+{
+	if (!ShouldRunDedicatedRegistryReporting())
+	{
+		return;
+	}
+
+	if (!bPendingRegistryPlayersUpdate)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("SendDedicatedPlayerCountUpdate: No pending update"));
+		return;
+	}
+
+	if (bRegistryPlayersRequestInFlight)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("SendDedicatedPlayerCountUpdate: Request already in flight, skipping"));
+		return;
+	}
+
+	FString Route = BuildSessionRegistryRoute(TEXT("/players"));
+	if (Route.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("SendDedicatedPlayerCountUpdate: Could not build route (SessionId may be empty)"));
+		bPendingRegistryPlayersUpdate = false;
+		return;
+	}
+
+	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
+	if (!Request.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("SendDedicatedPlayerCountUpdate: Could not create HTTP request"));
+		bPendingRegistryPlayersUpdate = false;
+		return;
+	}
+
+	// Build JSON payload
+	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetNumberField(TEXT("currentPlayers"), PendingRegistryCurrentPlayers);
+	Payload->SetNumberField(TEXT("maxPlayers"), PendingRegistryMaxPlayers);
+
+	FString PayloadJson;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&PayloadJson);
+	FJsonSerializer::Serialize(Payload, Writer);
+
+	Request->SetContentAsString(PayloadJson);
+
+	bRegistryPlayersRequestInFlight = true;
+
+	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
+	Request->OnProcessRequestComplete().BindLambda(
+		[WeakThis](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+		{
+			if (!WeakThis.IsValid())
+			{
+				return;
+			}
+
+			UXrMpGameInstance* Self = WeakThis.Get();
+			Self->bRegistryPlayersRequestInFlight = false;
+
+			const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+			const bool bWasSuccessful = bSucceeded && HttpResponse.IsValid() && EHttpResponseCodes::IsOk(StatusCode);
+
+			if (bWasSuccessful)
+			{
+				UE_LOG(LogTemp, Log, TEXT("SendDedicatedPlayerCountUpdate: Success (status %d), players update sent to registry"), StatusCode);
+				Self->bPendingRegistryPlayersUpdate = false;
+
+				// Clear any pending retry timer
+				if (Self->SessionRegistryPlayersRetryTimerHandle.IsValid())
+				{
+					if (UWorld* World = Self->GetWorld())
+					{
+						World->GetTimerManager().ClearTimer(Self->SessionRegistryPlayersRetryTimerHandle);
+						Self->SessionRegistryPlayersRetryTimerHandle.Invalidate();
+					}
+				}
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("SendDedicatedPlayerCountUpdate: Failed (bSucceeded=%s, status=%d), will retry in %.1f seconds"),
+					bSucceeded ? TEXT("true") : TEXT("false"),
+					StatusCode,
+					Self->SessionRegistryPlayersRetryDelaySeconds);
+				UE_LOG(LogTemp, Warning, TEXT("  Response: %s"), HttpResponse.IsValid() ? *HttpResponse->GetContentAsString() : TEXT("<null>"));
+
+				// Schedule retry
+				Self->RetryDedicatedPlayerCountUpdate();
+			}
+		});
+
+	UE_LOG(LogTemp, Log, TEXT("SendDedicatedPlayerCountUpdate: POST %s, payload=%s"), *Request->GetURL(), *PayloadJson);
+	Request->ProcessRequest();
+}
+
+void UXrMpGameInstance::RetryDedicatedPlayerCountUpdate()
+{
+	if (!ShouldRunDedicatedRegistryReporting())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Cancel any existing retry timer
+	if (SessionRegistryPlayersRetryTimerHandle.IsValid())
+	{
+		World->GetTimerManager().ClearTimer(SessionRegistryPlayersRetryTimerHandle);
+	}
+
+	// Schedule a retry
+	World->GetTimerManager().SetTimer(
+		SessionRegistryPlayersRetryTimerHandle,
+		this,
+		&UXrMpGameInstance::SendDedicatedPlayerCountUpdate,
+		SessionRegistryPlayersRetryDelaySeconds,
+		false);
+
+	UE_LOG(LogTemp, Log, TEXT("RetryDedicatedPlayerCountUpdate: Retry scheduled in %.1f seconds"), SessionRegistryPlayersRetryDelaySeconds);
+}
+
+void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()
+{
+	if (!ShouldRunDedicatedRegistryReporting())
+	{
+		return;
+	}
+
+	FString Route = BuildSessionRegistryRoute(TEXT("/heartbeat"));
+	if (Route.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("SendDedicatedHeartbeatTimerTick: Could not build route (SessionId may be empty)"));
+		return;
+	}
+
+	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
+	if (!Request.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("SendDedicatedHeartbeatTimerTick: Could not create HTTP request"));
+		return;
+	}
+
+	// Heartbeat can be empty or minimal payload
+	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("alive"), TEXT("true"));
+
+	FString PayloadJson;
+	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&PayloadJson);
+	FJsonSerializer::Serialize(Payload, Writer);
+
+	Request->SetContentAsString(PayloadJson);
+
+	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
+	Request->OnProcessRequestComplete().BindLambda(
+		[WeakThis](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+		{
+			if (!WeakThis.IsValid())
+			{
+				return;
+			}
+
+			const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+			if (bSucceeded && HttpResponse.IsValid() && EHttpResponseCodes::IsOk(StatusCode))
+			{
+				UE_LOG(LogTemp, Verbose, TEXT("SendDedicatedHeartbeatTimerTick: Heartbeat sent successfully (status %d)"), StatusCode);
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("SendDedicatedHeartbeatTimerTick: Heartbeat failed (bSucceeded=%s, status=%d)"),
+					bSucceeded ? TEXT("true") : TEXT("false"),
+					StatusCode);
+			}
+		});
+
+	UE_LOG(LogTemp, Verbose, TEXT("SendDedicatedHeartbeatTimerTick: POST %s"), *Request->GetURL());
+	Request->ProcessRequest();
+}
+
+void UXrMpGameInstance::StartDedicatedRegistryHeartbeat()
+{
+	if (!ShouldRunDedicatedRegistryReporting())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("StartDedicatedRegistryHeartbeat: Not running on dedicated server or registry config incomplete"));
+		return;
+	}
+
+	RefreshDedicatedRegistryRuntimeConfig();
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		UE_LOG(LogTemp, Error, TEXT("StartDedicatedRegistryHeartbeat: No world available"));
+		return;
+	}
+
+	// Cancel any existing heartbeat timer
+	if (SessionRegistryHeartbeatTimerHandle.IsValid())
+	{
+		World->GetTimerManager().ClearTimer(SessionRegistryHeartbeatTimerHandle);
+	}
+
+	// Start the heartbeat loop
+	World->GetTimerManager().SetTimer(
+		SessionRegistryHeartbeatTimerHandle,
+		this,
+		&UXrMpGameInstance::SendDedicatedHeartbeatTimerTick,
+		SessionRegistryHeartbeatIntervalSeconds,
+		true);  // Loop
+
+	UE_LOG(LogTemp, Warning, TEXT("StartDedicatedRegistryHeartbeat: Started with interval %.1f seconds, SessionId=%s, BaseUrl=%s"),
+		SessionRegistryHeartbeatIntervalSeconds,
+		*SessionId,
+		*SessionRegistryBaseUrl);
+}
+
+void UXrMpGameInstance::StopDedicatedRegistryHeartbeat()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Stop heartbeat timer
+	if (SessionRegistryHeartbeatTimerHandle.IsValid())
+	{
+		World->GetTimerManager().ClearTimer(SessionRegistryHeartbeatTimerHandle);
+		SessionRegistryHeartbeatTimerHandle.Invalidate();
+	}
+
+	// Stop retry timer
+	if (SessionRegistryPlayersRetryTimerHandle.IsValid())
+	{
+		World->GetTimerManager().ClearTimer(SessionRegistryPlayersRetryTimerHandle);
+		SessionRegistryPlayersRetryTimerHandle.Invalidate();
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("StopDedicatedRegistryHeartbeat: Stopped, SessionId=%s"), *SessionId);
+}
+
+void UXrMpGameInstance::SendDedicatedHeartbeatUpdate()
+{
+	// Alias for direct heartbeat send (not the timer tick)
+	SendDedicatedHeartbeatTimerTick();
 }
 

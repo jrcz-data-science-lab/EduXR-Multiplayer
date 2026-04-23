@@ -17,6 +17,7 @@
 
 // Forward declarations for internal use
 class IOnlineIdentityInterface;
+class IHttpRequest;
 class FOnlineSessionSettings;
 class FOnlineSessionSearch;
 
@@ -215,6 +216,22 @@ public:
 	/** Runtime config for dedicated-server registry API (optional if set in BP defaults). */
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated")
 	void SetDedicatedServerApiConfig(const FString& InBaseUrl, const FString& InApiToken);
+
+	/** Starts dedicated-server registry heartbeat loop if config/runtime mode allows it. Safe to call multiple times. */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	void StartDedicatedRegistryHeartbeat();
+
+	/** Stops dedicated-server registry heartbeat loop and pending retries. */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	void StopDedicatedRegistryHeartbeat();
+
+	/** Called by authoritative server code when real player count changes (join/leave). */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	void NotifyDedicatedPlayerCountChanged(int32 CurrentPlayers);
+
+	/** Sends one heartbeat update immediately (timer loop still controls regular cadence). */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	void SendDedicatedHeartbeatUpdate();
 
 	// ─────────────────────────────────────────────
 	// Properties
@@ -452,6 +469,38 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
 	int32 DedicatedFallbackPort = 7777;
 
+	/** Preferred registry base URL for dedicated runtime updates (heartbeat/player count). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	FString SessionRegistryBaseUrl;
+
+	/** Bearer token for registry API authorization. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	FString SessionRegistryToken;
+
+	/** Session id owned by this dedicated server row in the registry. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	FString SessionId;
+
+	/** Max players reported by dedicated server runtime updates. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1", UIMin = "1"))
+	int32 MaxPlayers = 16;
+
+	/** Connect address reported by dedicated server heartbeat payload. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	FString ConnectAddress;
+
+	/** Connect port reported by dedicated server heartbeat payload. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
+	int32 ConnectPort = 7777;
+
+	/** Interval used for periodic dedicated heartbeat posts. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
+	float SessionRegistryHeartbeatIntervalSeconds = 10.0f;
+
+	/** Delay before retrying failed dedicated player-count updates. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
+	float SessionRegistryPlayersRetryDelaySeconds = 5.0f;
+
 	/** If set, enables verbose Null LAN beacon diagnostics in logs. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|LAN|Debug", meta = (AllowPrivateAccess = "true"))
 	bool bEnableLANDiagnostics = false;
@@ -478,4 +527,43 @@ private:
 
 	/** Connect strings returned by dedicated discovery rows (matches CachedSearchResults index). */
 	TArray<FString> CachedDedicatedConnectStrings;
+
+	/** Returns true only when this process should run dedicated registry reporting. */
+	bool ShouldRunDedicatedRegistryReporting() const;
+
+	/** Ensures registry config fields have best-effort values from existing config + command line. */
+	void RefreshDedicatedRegistryRuntimeConfig();
+
+	/** Build /sessions/{SessionId}/... route using URL-escaped session id. */
+	FString BuildSessionRegistryRoute(const FString& Suffix) const;
+
+	/** Shared helper to build and configure JSON requests for dedicated registry endpoints. */
+	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> CreateDedicatedRegistryJsonRequest(const FString& Verb, const FString& Route) const;
+
+	/** Sends player-count update using the latest authoritative values. */
+	void SendDedicatedPlayerCountUpdate();
+
+	/** Handles retries for player-count updates. */
+	void RetryDedicatedPlayerCountUpdate();
+
+	/** Internal timer callback for periodic heartbeats. */
+	void SendDedicatedHeartbeatTimerTick();
+
+	/** Latest authoritative player count waiting to be sent to registry. */
+	int32 PendingRegistryCurrentPlayers = 0;
+
+	/** Max players sent alongside the latest pending player update. */
+	int32 PendingRegistryMaxPlayers = 16;
+
+	/** True when there is a player update waiting to be posted. */
+	bool bPendingRegistryPlayersUpdate = false;
+
+	/** True while a player update HTTP request is in flight. */
+	bool bRegistryPlayersRequestInFlight = false;
+
+	/** Retry timer handle for failed player-count posts. */
+	FTimerHandle SessionRegistryPlayersRetryTimerHandle;
+
+	/** Heartbeat timer handle for dedicated registry keepalive. */
+	FTimerHandle SessionRegistryHeartbeatTimerHandle;
 };
