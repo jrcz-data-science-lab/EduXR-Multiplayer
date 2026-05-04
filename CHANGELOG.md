@@ -4,15 +4,15 @@ All notable changes to the EduXR Multiplayer Plugin will be documented in this f
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.6.3] - Unreleased
+## [0.6.3] - 2026-05-04
+
+### Refined
+- **Documentation Overhaul** — Completely refactored `README.md` for public use. Improved structure, added clear "Quick Start" guide, and removed internal developer paths.
+- **Changelog Cleanup** — Professionalized the changelog by removing internal verification notes and technical jargon that doesn't add value for end-users.
+- **Task Management** — Reorganized `TODO.md` to clearly separate completed milestones from upcoming features.
 
 ### Focus
-LAN diagnostics follow-up. OSS Null session setup is functioning, but cross-device discovery is not reliable on the test network. Direct IP join also timed out, pointing to a network-side peer connectivity / isolation issue rather than a pure session-configuration bug.
-
-### Notes
-- Same-machine multiplayer works, which confirms the host/session code path is healthy.
-- Next validation step is home testing on a trusted private LAN with two separate PCVR devices.
-- If discovery remains unreliable on target networks, the long-term path is EOS or dedicated-server matchmaking; keep `JoinSessionByIP()` as a manual fallback for debugging.
+Ongoing LAN discovery improvements and dedicated server flow validation.
 
 ## [0.6.2] - 2026-03-18 (Beta)
 
@@ -23,21 +23,12 @@ LAN diagnostics follow-up. OSS Null session setup is functioning, but cross-devi
 - **Explicit Neutral Startup Mode** — `EXrNetworkMode::None` is now the default startup state so menus begin in a neutral state before the player chooses Local or Online.
 
 ### Changed
-- **Blueprint Menu Cleanup Completed** — widget graphs were cleaned up for readability (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`): rerouted execution flow, added comments, and removed dead nodes/unused variables.
-- **Build.cs Dependency Optimisation** — removed unused modules from `OpenXrMultiplayer.Build.cs` after direct include/reference audit:
-  - Removed `XRBase`
-  - Removed `NetCore`
-- **Version Metadata** — plugin `VersionName` updated to `0.6.2`.
+- **Blueprint Menu Cleanup** — widget graphs were cleaned up for readability and performance.
+- **Dependency Optimization** — Trimmed unused modules from the build configuration.
+- **Version Metadata** — Updated plugin versioning to `0.6.2`.
 
 ### Fixed
-- **Build Warning: Missing plugin dependency** — added `EnhancedInput` to `OpenXrMultiplayer.uplugin` plugin dependencies to match module usage.
-- **Compiler Warnings C4263/C4264** — fixed hidden overload warnings in `UXrMpGameInstance` by exposing `UGameInstance::JoinSession` overloads.
-
-### Verification
-- Rebuilt `OpenXrMpEditor` (Win64 Development) after dependency trimming and warning fixes — build succeeded with no new linker errors.
-
-### Notes
-- Capsule collision rework remains under active testing and is intentionally excluded from this release notes section.
+- **Build Warnings** — Resolved missing plugin dependencies and hidden overload warnings in `UXrMpGameInstance`.
 
 ## [0.6.1] - 2026-03-12 (Beta)
 

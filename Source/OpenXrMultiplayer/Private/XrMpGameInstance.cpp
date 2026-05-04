@@ -146,7 +146,7 @@ FString UXrMpGameInstance::BuildDedicatedApiUrl(const FString& Route) const
 	FString Base = DedicatedApiBaseUrl;
 	while (Base.EndsWith(TEXT("/")))
 	{
-		Base.LeftChopInline(1, false);
+		Base.RemoveFromEnd(TEXT("/"));
 	}
 
 	FString NormalizedRoute = Route;
@@ -168,7 +168,7 @@ FString UXrMpGameInstance::BuildDedicatedApiUrl(const FString& Route) const
  */
 void UXrMpGameInstance::ActivateSubsystem(const FName& SubsystemName)
 {
-	IOnlineSubsystem* OSS = IOnlineSubsystem::Get(SubsystemName);
+	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld(), SubsystemName);
 	if (!OSS)
 	{
 		UE_LOG(LogTemp, Error, TEXT("ActivateSubsystem: %s subsystem not available!"), *SubsystemName.ToString());
@@ -187,7 +187,7 @@ void UXrMpGameInstance::ActivateSubsystem(const FName& SubsystemName)
 
 	UE_LOG(LogTemp, Warning, TEXT("ActivateSubsystem: SessionInterface valid, configuring net driver for %s"), *SubsystemName.ToString());
 
-	bool bIsNull = (SubsystemName == FName(TEXT("Null")));
+	const bool bIsNull = SubsystemName.ToString().Equals(TEXT("Null"), ESearchCase::IgnoreCase);
 	ConfigureNetDriverForSubsystem(bIsNull);
 	BindSessionDelegates();
 }
@@ -229,7 +229,7 @@ bool UXrMpGameInstance::ResolveLocalSessionUserId(FUniqueNetIdRepl& OutUserId, b
 
 	if (bUsingEOS)
 	{
-		IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("EOS"));
+		IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld(), FName(TEXT("EOS")));
 		if (OSS)
 		{
 			IOnlineIdentityPtr Identity = OSS->GetIdentityInterface();
@@ -246,7 +246,6 @@ bool UXrMpGameInstance::ResolveLocalSessionUserId(FUniqueNetIdRepl& OutUserId, b
 		}
 
 		UE_LOG(LogTemp, Warning, TEXT("%s: Resolved EOS user id = %s"), Context, *OutUserId->ToString());
-
 		return true;
 	}
 
@@ -265,7 +264,6 @@ bool UXrMpGameInstance::ResolveLocalSessionUserId(FUniqueNetIdRepl& OutUserId, b
 	}
 
 	UE_LOG(LogTemp, Warning, TEXT("%s: Resolved Local(Null) user id = %s"), Context, *OutUserId->ToString());
-
 	return true;
 }
 
@@ -428,7 +426,7 @@ void UXrMpGameInstance::ConfigureNetDriverForSubsystem(bool bUsingNullSubsystem)
 
 	for (FNetDriverDefinition& NetDriverDef : GameEngine->NetDriverDefinitions)
 	{
-		if (NetDriverDef.DefName == NAME_GameNetDriver)
+		if (NetDriverDef.DefName.ToString().Equals(TEXT("GameNetDriver"), ESearchCase::IgnoreCase))
 		{
 			if (bUsingNullSubsystem)
 			{
@@ -465,7 +463,7 @@ void UXrMpGameInstance::LoginOnlineService()
 
 void UXrMpGameInstance::LoginToEOS()
 {
-	IOnlineSubsystem* OSS = IOnlineSubsystem::Get(TEXT("EOS"));
+	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld(), TEXT("EOS"));
 	if (!OSS)
 	{
 		UE_LOG(LogTemp, Error, TEXT("LoginToEOS: EOS Online Subsystem not available"));
@@ -534,12 +532,15 @@ void UXrMpGameInstance::OnLoginComplete(int32 LocalUserNum, bool bWasSuccessful,
 
 void UXrMpGameInstance::HostSession(int32 InMaxPlayers, bool bIsLan, FString ServerName)
 {
-	if (ActiveNetworkMode == EXrNetworkMode::Dedicated)
+	UE_LOG(LogTemp, Warning, TEXT("HostSession: Hosting is disabled in this build. Use the Python API / launcher to create dedicated servers; Unreal can only find and join existing servers."));
+	if (GEngine)
 	{
-		HostDedicatedSession(InMaxPlayers, ServerName);
-		return;
+		GEngine->AddOnScreenDebugMessage(-1, 8.f, FColor::Yellow,
+			TEXT("Hosting is disabled. Use the launcher/API to create servers."));
 	}
 
+	/*
+	// Previous host implementation preserved for future re-enable:
 	bool bUsingEOS = (ActiveNetworkMode == EXrNetworkMode::Online);
 	const bool bUseLanMatch = !bUsingEOS;
 	UWorld* World = GetWorld();
@@ -670,9 +671,11 @@ void UXrMpGameInstance::HostSession(int32 InMaxPlayers, bool bIsLan, FString Ser
 
 void UXrMpGameInstance::HostDedicatedSession(int32 InMaxPlayers, const FString& ServerName)
 {
-	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, InMaxPlayers));
-	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: ServerName=%s, MaxPlayers=%d"), *ServerName, InMaxPlayers);
+	UpdateLANDiagnosticsSummary(FString::Printf(TEXT("HostDedicatedSession: disabled in Unreal (ServerName=%s, MaxPlayers=%d)"), *ServerName, InMaxPlayers));
+	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: Dedicated server creation is disabled in Unreal. Use the Python API / launcher flow instead. ServerName=%s, MaxPlayers=%d"), *ServerName, InMaxPlayers);
 
+	/*
+	// Previous dedicated-host implementation preserved for future re-enable:
 	const FString CreateUrl = BuildDedicatedApiUrl(DedicatedApiCreateRoute);
 	if (CreateUrl.IsEmpty())
 	{
@@ -772,7 +775,12 @@ void UXrMpGameInstance::HostDedicatedSession(int32 InMaxPlayers, const FString& 
 
 	UE_LOG(LogTemp, Warning, TEXT("HostDedicatedSession: POST %s"), *CreateUrl);
 	Request->ProcessRequest();
+	*/
 }
+
+// ═══════════════════════════════════════════════════
+// Find Dedicated Sessions
+// ═══════════════════════════════════════════════════
 
 void UXrMpGameInstance::FindDedicatedSessions(int32 MaxSearchResults)
 {
@@ -1192,7 +1200,7 @@ void UXrMpGameInstance::FindSessions(int32 MaxSearchResults, bool bIsLan)
 		return;
 	}
 
-	SessionSearch = MakeShareable(new FOnlineSessionSearch());
+	SessionSearch = MakeShared<FOnlineSessionSearch>();
 	SessionSearch->MaxSearchResults = MaxSearchResults;
 	SessionSearch->bIsLanQuery = bUseLanQuery;
 	SessionSearch->PingBucketSize = 100; // Standard for LAN searches
@@ -1585,18 +1593,11 @@ void UXrMpGameInstance::LogNetworkInterfaces(const TCHAR* Context)
 		}
 
 		bool bCanBindAll = false;
-		if (TSharedPtr<FInternetAddr> HostAddr = SocketSubsystem->GetLocalHostAddr(*GLog, bCanBindAll))
-		{
-			const FString HostAddrText = HostAddr->ToString(false);
-			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   LocalHostAddr=%s"), *HostAddrText);
-			Summary += FString::Printf(TEXT(", HostIP=%s"), *HostAddrText);
-		}
-		else
-		{
-			UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   LocalHostAddr=<unavailable>"));
-		}
-
-		Summary += FString::Printf(TEXT(", Adapters=%d, IPv4=%d"), AdapterCount, IPv4Count);
+		TSharedRef<FInternetAddr> HostAddr = SocketSubsystem->GetLocalHostAddr(*GLog, bCanBindAll);
+		const FString HostAddrText = HostAddr->ToString(false);
+		UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG]   LocalHostAddr=%s"), *HostAddrText);
+		Summary.Appendf(TEXT(", HostIP=%s"), *HostAddrText);
+		Summary.Appendf(TEXT(", Adapters=%d, IPv4=%d"), AdapterCount, IPv4Count);
 	}
 	else
 	{
@@ -1619,9 +1620,9 @@ void UXrMpGameInstance::LogDiscoveryReadiness(const TCHAR* Context, bool bExpect
 		ActiveNetworkMode == EXrNetworkMode::Dedicated ? TEXT("Dedicated") :
 		TEXT("None");
 
-	IOnlineSubsystem* DefaultOSS = IOnlineSubsystem::Get();
-	IOnlineSubsystem* NullOSS = IOnlineSubsystem::Get(TEXT("Null"));
-	IOnlineSubsystem* EosOSS = IOnlineSubsystem::Get(TEXT("EOS"));
+	IOnlineSubsystem* DefaultOSS = Online::GetSubsystem(GetWorld());
+	IOnlineSubsystem* NullOSS = Online::GetSubsystem(GetWorld(), FName(TEXT("Null")));
+	IOnlineSubsystem* EosOSS = Online::GetSubsystem(GetWorld(), FName(TEXT("EOS")));
 
 	FString MultiHomeArg;
 	const bool bHasMultiHome = FParse::Value(FCommandLine::Get(), TEXT("MULTIHOME="), MultiHomeArg);
@@ -1641,7 +1642,7 @@ void UXrMpGameInstance::LogDiscoveryReadiness(const TCHAR* Context, bool bExpect
 		bool bFoundGameNetDriver = false;
 		for (const FNetDriverDefinition& NetDriverDef : GameEngine->NetDriverDefinitions)
 		{
-			if (NetDriverDef.DefName == NAME_GameNetDriver)
+			if (NetDriverDef.DefName.ToString().Equals(TEXT("GameNetDriver"), ESearchCase::IgnoreCase))
 			{
 				bFoundGameNetDriver = true;
 				UE_LOG(LogTemp, Warning, TEXT("[LAN_DIAG] GameNetDriver DriverClass=%s, Fallback=%s"),
@@ -1792,16 +1793,15 @@ FString UXrMpGameInstance::BuildSessionRegistryRoute(const FString& Suffix) cons
 	return FString::Printf(TEXT("/sessions/%s%s"), *EncodedSessionId, *Suffix);
 }
 
-TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> UXrMpGameInstance::CreateDedicatedRegistryJsonRequest(const FString& Verb, const FString& Route) const
+TSharedRef<IHttpRequest, ESPMode::ThreadSafe> UXrMpGameInstance::CreateDedicatedRegistryJsonRequest(const FString& Verb, const FString& Route) const
 {
 	FString FullUrl = BuildDedicatedApiUrl(Route);
 	if (FullUrl.IsEmpty())
 	{
-		UE_LOG(LogTemp, Error, TEXT("CreateDedicatedRegistryJsonRequest: Could not build URL for route %s"), *Route);
-		return nullptr;
+		checkf(!FullUrl.IsEmpty(), TEXT("CreateDedicatedRegistryJsonRequest: Could not build URL for route %s"), *Route);
 	}
 
-	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> Request = FHttpModule::Get().CreateRequest();
+	auto Request = FHttpModule::Get().CreateRequest();
 	Request->SetURL(FullUrl);
 	Request->SetVerb(*Verb);
 	Request->SetHeader(TEXT("Content-Type"), TEXT("application/json"));
@@ -1865,13 +1865,7 @@ void UXrMpGameInstance::SendDedicatedPlayerCountUpdate()
 		return;
 	}
 
-	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
-	if (!Request.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("SendDedicatedPlayerCountUpdate: Could not create HTTP request"));
-		bPendingRegistryPlayersUpdate = false;
-		return;
-	}
+	auto Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
 
 	// Build JSON payload
 	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
@@ -1886,16 +1880,15 @@ void UXrMpGameInstance::SendDedicatedPlayerCountUpdate()
 
 	bRegistryPlayersRequestInFlight = true;
 
-	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
+	UXrMpGameInstance* Self = this;
 	Request->OnProcessRequestComplete().BindLambda(
-		[WeakThis](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+		[Self](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
 		{
-			if (!WeakThis.IsValid())
+			if (!IsValid(Self))
 			{
 				return;
 			}
 
-			UXrMpGameInstance* Self = WeakThis.Get();
 			Self->bRegistryPlayersRequestInFlight = false;
 
 			const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
@@ -1933,36 +1926,6 @@ void UXrMpGameInstance::SendDedicatedPlayerCountUpdate()
 	Request->ProcessRequest();
 }
 
-void UXrMpGameInstance::RetryDedicatedPlayerCountUpdate()
-{
-	if (!ShouldRunDedicatedRegistryReporting())
-	{
-		return;
-	}
-
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-
-	// Cancel any existing retry timer
-	if (SessionRegistryPlayersRetryTimerHandle.IsValid())
-	{
-		World->GetTimerManager().ClearTimer(SessionRegistryPlayersRetryTimerHandle);
-	}
-
-	// Schedule a retry
-	World->GetTimerManager().SetTimer(
-		SessionRegistryPlayersRetryTimerHandle,
-		this,
-		&UXrMpGameInstance::SendDedicatedPlayerCountUpdate,
-		SessionRegistryPlayersRetryDelaySeconds,
-		false);
-
-	UE_LOG(LogTemp, Log, TEXT("RetryDedicatedPlayerCountUpdate: Retry scheduled in %.1f seconds"), SessionRegistryPlayersRetryDelaySeconds);
-}
-
 void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()
 {
 	if (!ShouldRunDedicatedRegistryReporting())
@@ -1977,12 +1940,7 @@ void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()
 		return;
 	}
 
-	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
-	if (!Request.IsValid())
-	{
-		UE_LOG(LogTemp, Error, TEXT("SendDedicatedHeartbeatTimerTick: Could not create HTTP request"));
-		return;
-	}
+	auto Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
 
 	// Heartbeat can be empty or minimal payload
 	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
@@ -1994,11 +1952,11 @@ void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()
 
 	Request->SetContentAsString(PayloadJson);
 
-	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
+	UXrMpGameInstance* Self = this;
 	Request->OnProcessRequestComplete().BindLambda(
-		[WeakThis](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+		[Self](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
 		{
-			if (!WeakThis.IsValid())
+			if (!IsValid(Self))
 			{
 				return;
 			}

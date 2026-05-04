@@ -214,23 +214,23 @@ public:
 	void LoginOnlineService();
 
 	/** Runtime config for dedicated-server registry API (optional if set in BP defaults). */
-	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated")
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void SetDedicatedServerApiConfig(const FString& InBaseUrl, const FString& InApiToken);
 
 	/** Starts dedicated-server registry heartbeat loop if config/runtime mode allows it. Safe to call multiple times. */
-	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void StartDedicatedRegistryHeartbeat();
 
 	/** Stops dedicated-server registry heartbeat loop and pending retries. */
-	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void StopDedicatedRegistryHeartbeat();
 
 	/** Called by authoritative server code when real player count changes (join/leave). */
-	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void NotifyDedicatedPlayerCountChanged(int32 CurrentPlayers);
 
 	/** Sends one heartbeat update immediately (timer loop still controls regular cadence). */
-	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated|Registry")
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void SendDedicatedHeartbeatUpdate();
 
 	// ─────────────────────────────────────────────
@@ -442,63 +442,63 @@ private:
 	float NullStartSessionDelaySeconds = 0.35f;
 
 	/** Base URL for dedicated-session registry API (example: http://10.0.0.10:8080). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString DedicatedApiBaseUrl;
 
 	/** Optional bearer token sent to the dedicated-session registry API. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString DedicatedApiToken;
 
 	/** Route used to list dedicated sessions. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString DedicatedApiListRoute = TEXT("/sessions");
 
 	/** Route used to request dedicated session creation. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString DedicatedApiCreateRoute = TEXT("/sessions");
 
 	/** HTTP timeout used for dedicated API requests. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
 	float DedicatedApiTimeoutSeconds = 8.0f;
 
 	/** Fallback dedicated host address used when API is unavailable. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString DedicatedFallbackHost;
 
 	/** Fallback dedicated host port used when API is unavailable. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
 	int32 DedicatedFallbackPort = 7777;
 
 	/** Preferred registry base URL for dedicated runtime updates (heartbeat/player count). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString SessionRegistryBaseUrl;
 
 	/** Bearer token for registry API authorization. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString SessionRegistryToken;
 
 	/** Session id owned by this dedicated server row in the registry. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString SessionId;
 
 	/** Max players reported by dedicated server runtime updates. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1", UIMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1", UIMin = "1"))
 	int32 MaxPlayers = 16;
 
 	/** Connect address reported by dedicated server heartbeat payload. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
 	FString ConnectAddress;
 
 	/** Connect port reported by dedicated server heartbeat payload. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1", ClampMax = "65535", UIMin = "1", UIMax = "65535"))
 	int32 ConnectPort = 7777;
 
 	/** Interval used for periodic dedicated heartbeat posts. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
 	float SessionRegistryHeartbeatIntervalSeconds = 10.0f;
 
 	/** Delay before retrying failed dedicated player-count updates. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated|Registry", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Config, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
 	float SessionRegistryPlayersRetryDelaySeconds = 5.0f;
 
 	/** If set, enables verbose Null LAN beacon diagnostics in logs. */
@@ -538,7 +538,7 @@ private:
 	FString BuildSessionRegistryRoute(const FString& Suffix) const;
 
 	/** Shared helper to build and configure JSON requests for dedicated registry endpoints. */
-	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> CreateDedicatedRegistryJsonRequest(const FString& Verb, const FString& Route) const;
+	TSharedRef<IHttpRequest, ESPMode::ThreadSafe> CreateDedicatedRegistryJsonRequest(const FString& Verb, const FString& Route) const;
 
 	/** Sends player-count update using the latest authoritative values. */
 	void SendDedicatedPlayerCountUpdate();
