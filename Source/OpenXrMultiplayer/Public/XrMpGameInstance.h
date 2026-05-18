@@ -83,6 +83,10 @@ struct FXrMpSessionResult
 	/** Optional resolved connect address (primarily used for dedicated-server rows). */
 	UPROPERTY(BlueprintReadOnly, Category = "Session")
 	FString ConnectAddress;
+
+	/** Dedic­ated server session ID from registry (used for player-count heartbeats). */
+	UPROPERTY(BlueprintReadOnly, Category = "Session")
+	FString SessionId;
 };
 
 /** Multicast delegate broadcast when FindSessions completes — bind in Blueprints to update your UI */
@@ -441,25 +445,6 @@ private:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|LAN", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", UIMin = "0.0"))
 	float NullStartSessionDelaySeconds = 0.35f;
 
-	/** Base URL for dedicated-session registry API (example: http://10.0.0.10:8080). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
-	FString DedicatedApiBaseUrl;
-
-	/** Optional bearer token sent to the dedicated-session registry API. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
-	FString DedicatedApiToken;
-
-	/** Route used to list dedicated sessions. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
-	FString DedicatedApiListRoute = TEXT("/sessions");
-
-	/** Route used to request dedicated session creation. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))
-	FString DedicatedApiCreateRoute = TEXT("/sessions");
-
-	/** HTTP timeout used for dedicated API requests. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true", ClampMin = "1.0", UIMin = "1.0"))
-	float DedicatedApiTimeoutSeconds = 8.0f;
 
 	/** Fallback dedicated host address used when API is unavailable. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "XR Multiplayer|Dedicated Server", meta = (AllowPrivateAccess = "true"))

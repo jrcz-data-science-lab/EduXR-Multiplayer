@@ -129,21 +129,21 @@ void UXrMpGameInstance::SetNetworkMode(EXrNetworkMode NewMode)
 
 void UXrMpGameInstance::SetDedicatedServerApiConfig(const FString& InBaseUrl, const FString& InApiToken)
 {
-	DedicatedApiBaseUrl = InBaseUrl;
-	DedicatedApiToken = InApiToken;
+	SessionRegistryBaseUrl = InBaseUrl;
+	SessionRegistryToken = InApiToken;
 	UE_LOG(LogTemp, Warning, TEXT("SetDedicatedServerApiConfig: BaseUrl=%s, TokenSet=%s"),
-		*DedicatedApiBaseUrl,
-		DedicatedApiToken.IsEmpty() ? TEXT("false") : TEXT("true"));
+		*SessionRegistryBaseUrl,
+		SessionRegistryToken.IsEmpty() ? TEXT("false") : TEXT("true"));
 }
 
 FString UXrMpGameInstance::BuildDedicatedApiUrl(const FString& Route) const
 {
-	if (DedicatedApiBaseUrl.IsEmpty())
+	if (SessionRegistryBaseUrl.IsEmpty())
 	{
 		return FString();
 	}
 
-	FString Base = DedicatedApiBaseUrl;
+	FString Base = SessionRegistryBaseUrl;
 	while (Base.EndsWith(TEXT("/")))
 	{
 		Base.RemoveFromEnd(TEXT("/"));
@@ -667,6 +667,7 @@ void UXrMpGameInstance::HostSession(int32 InMaxPlayers, bool bIsLan, FString Ser
 	UE_LOG(LogTemp, Warning, TEXT("Creating session with UserId: %s"), *UserId->ToString());
 	UE_LOG(LogTemp, Warning, TEXT("HostSession: CreateSession request -> SessionName=GameSession, Search settings advertised key count may follow in OnCreateSessionComplete"));
 	SessionInterface->CreateSession(*UserId, NAME_GameSession, *SessionSettings);
+	*/
 }
 
 void UXrMpGameInstance::HostDedicatedSession(int32 InMaxPlayers, const FString& ServerName)
@@ -788,7 +789,7 @@ void UXrMpGameInstance::FindDedicatedSessions(int32 MaxSearchResults)
 	CachedSearchResults.Empty();
 	CachedDedicatedConnectStrings.Empty();
 
-	const FString ListUrl = BuildDedicatedApiUrl(DedicatedApiListRoute);
+	const FString ListUrl = BuildDedicatedApiUrl(TEXT("/sessions"));
 	if (ListUrl.IsEmpty())
 	{
 		if (!DedicatedFallbackHost.IsEmpty())
@@ -815,11 +816,11 @@ void UXrMpGameInstance::FindDedicatedSessions(int32 MaxSearchResults)
 	Request->SetURL(ListUrl);
 	Request->SetVerb(TEXT("GET"));
 	Request->SetHeader(TEXT("Accept"), TEXT("application/json"));
-	if (!DedicatedApiToken.IsEmpty())
+	if (!SessionRegistryToken.IsEmpty())
 	{
-		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *DedicatedApiToken));
+		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *SessionRegistryToken));
 	}
-	Request->SetTimeout(DedicatedApiTimeoutSeconds);
+	Request->SetTimeout(8.0f);
 
 	TWeakObjectPtr<UXrMpGameInstance> WeakThis(this);
 	Request->OnProcessRequestComplete().BindLambda(
@@ -938,18 +939,19 @@ void UXrMpGameInstance::FindDedicatedSessions(int32 MaxSearchResults)
 					continue;
 				}
 
-				FXrMpSessionResult ResultRow;
-				ResultRow.ServerName = ServerName;
-				ResultRow.OwnerName = OwnerName;
-				ResultRow.CurrentPlayers = ResolveIntField(RowObject, TEXT("currentPlayers"), 0);
-				ResultRow.MaxPlayers = ResolveIntField(RowObject, TEXT("maxPlayers"), 64);
-				ResultRow.PingInMs = ResolveIntField(RowObject, TEXT("pingMs"), -1);
-				ResultRow.SessionIndex = Self->CachedSearchResults.Num();
-				ResultRow.ConnectAddress = ConnectString;
+			FXrMpSessionResult ResultRow;
+			ResultRow.ServerName = ServerName;
+			ResultRow.OwnerName = OwnerName;
+			ResultRow.CurrentPlayers = ResolveIntField(RowObject, TEXT("currentPlayers"), 0);
+			ResultRow.MaxPlayers = ResolveIntField(RowObject, TEXT("maxPlayers"), 64);
+			ResultRow.PingInMs = ResolveIntField(RowObject, TEXT("pingMs"), -1);
+			ResultRow.SessionIndex = Self->CachedSearchResults.Num();
+			ResultRow.ConnectAddress = ConnectString;
+			RowObject->TryGetStringField(TEXT("sessionId"), ResultRow.SessionId);
 
-				Self->CachedDedicatedConnectStrings.Add(ConnectString);
-				Self->CachedSearchResults.Add(ResultRow);
-				++AddedCount;
+			Self->CachedDedicatedConnectStrings.Add(ConnectString);
+			Self->CachedSearchResults.Add(ResultRow);
+			++AddedCount;
 			}
 
 			UE_LOG(LogTemp, Warning, TEXT("FindDedicatedSessions: Parsed %d session rows"), Self->CachedSearchResults.Num());
@@ -1372,6 +1374,14 @@ void UXrMpGameInstance::JoinSession(int32 SessionIndex)
 
 		const FString ConnectString = CachedDedicatedConnectStrings[SessionIndex];
 		UE_LOG(LogTemp, Warning, TEXT("JoinSession (Dedicated): SessionIndex=%d, Connect=%s"), SessionIndex, *ConnectString);
+		
+		// Store the SessionId from the search results for heartbeat/player-count reporting
+		if (CachedSearchResults.IsValidIndex(SessionIndex))
+		{
+			SessionId = CachedSearchResults[SessionIndex].SessionId;
+			UE_LOG(LogTemp, Warning, TEXT("JoinSession (Dedicated): Stored SessionId=%s for registry heartbeat"), *SessionId);
+		}
+		
 		if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
 		{
 			PC->ClientTravel(ConnectString, ETravelType::TRAVEL_Absolute);
@@ -1739,11 +1749,26 @@ bool UXrMpGameInstance::ShouldRunDedicatedRegistryReporting() const
 
 	// Check if this is a dedicated server (net role is authority, no listening clients in PIE, etc.)
 	bool bIsDedicatedServer = World->IsNetMode(NM_DedicatedServer);
+	bool bHasBaseUrl = !SessionRegistryBaseUrl.IsEmpty();
+	bool bHasSessionId = !SessionId.IsEmpty();
 	
-	// Also check for ListenServer mode if needed (though the user said dedicated-only)
-	// For now, we'll only report on dedicated servers (not listen servers)
+	if (!bIsDedicatedServer)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("ShouldRunDedicatedRegistryReporting: Not dedicated server (NetMode=%d)"), static_cast<int32>(World->GetNetMode()));
+		return false;
+	}
+	if (!bHasBaseUrl)
+	{
+		UE_LOG(LogTemp, Verbose, TEXT("ShouldRunDedicatedRegistryReporting: SessionRegistryBaseUrl is empty"));
+		return false;
+	}
+	if (!bHasSessionId)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("ShouldRunDedicatedRegistryReporting: SessionId is empty — heartbeat cannot start. Did server receive SessionId from registry?"));
+		return false;
+	}
 	
-	return bIsDedicatedServer && !SessionRegistryBaseUrl.IsEmpty() && !SessionId.IsEmpty();
+	return bIsDedicatedServer && bHasBaseUrl && bHasSessionId;
 }
 
 void UXrMpGameInstance::RefreshDedicatedRegistryRuntimeConfig()
@@ -1812,7 +1837,7 @@ TSharedRef<IHttpRequest, ESPMode::ThreadSafe> UXrMpGameInstance::CreateDedicated
 		Request->SetHeader(TEXT("Authorization"), FString::Printf(TEXT("Bearer %s"), *SessionRegistryToken));
 	}
 
-	Request->SetTimeout(DedicatedApiTimeoutSeconds);
+	Request->SetTimeout(8.0f);
 
 	return Request;
 }
@@ -1924,6 +1949,33 @@ void UXrMpGameInstance::SendDedicatedPlayerCountUpdate()
 
 	UE_LOG(LogTemp, Log, TEXT("SendDedicatedPlayerCountUpdate: POST %s, payload=%s"), *Request->GetURL(), *PayloadJson);
 	Request->ProcessRequest();
+}
+
+void UXrMpGameInstance::RetryDedicatedPlayerCountUpdate()
+{
+	if (!ShouldRunDedicatedRegistryReporting())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Avoid multiple concurrent retry timers
+	if (SessionRegistryPlayersRetryTimerHandle.IsValid())
+	{
+		return;
+	}
+
+	World->GetTimerManager().SetTimer(
+		SessionRegistryPlayersRetryTimerHandle,
+		this,
+		&UXrMpGameInstance::SendDedicatedPlayerCountUpdate,
+		SessionRegistryPlayersRetryDelaySeconds,
+		false);
 }
 
 void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()

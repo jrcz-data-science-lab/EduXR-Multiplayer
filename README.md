@@ -46,6 +46,13 @@ A robust multiplayer networking solution for Unreal Engine 5, specifically desig
 3. Restart the Unreal Editor.
 4. Enable **OpenXR Multiplayer** in `Edit -> Plugins`.
 
+### 🐧 Building for Linux (Dedicated Server)
+
+For detailed instructions on cross-compiling your Unreal Engine project for Linux, refer to this guide:
+- **[Unreal Engine Linux Cross-Compilation Guide](https://www.youtube.com/watch?v=kzVzy87qELQ)**
+
+This covers setting up the toolchain and packaging dedicated server builds.
+
 ---
 
 ## 🏁 Quick Start
