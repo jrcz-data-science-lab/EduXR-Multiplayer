@@ -30,7 +30,7 @@ A robust multiplayer networking solution for Unreal Engine 5, specifically desig
 
 ## Requirements
 
-- **Unreal Engine**: 5.7.3 (Recommended)
+- **Unreal Engine**: 5.7.0+ (Tested on 5.7.2 and 5.7.3)
 - **Target Platform**: Windows (Primary), Linux (Server)
 - **Plugins**: Online Subsystem EOS (Optional, for online play)
 
@@ -39,12 +39,12 @@ A robust multiplayer networking solution for Unreal Engine 5, specifically desig
 ## Installation
 
 1. Navigate to your Unreal Engine project's `Plugins` folder (create it if it doesn't exist).
-2. Clone this repository into that folder:
+2. Clone or copy the OpenXrMultiplayer plugin into that folder:
    ```bash
-   git clone https://github.com/jrcz-data-science-lab/EduXR-Multiplayer.git
+   git clone https://github.com/jrcz-data-science-lab/EduXR-Multiplayer.git OpenXrMultiplayer
    ```
 3. Restart the Unreal Editor.
-4. Enable **OpenXR Multiplayer** in `Edit -> Plugins`.
+4. Enable the **OpenXR Multiplayer** plugin in `Edit -> Plugins` (search for "OpenXR Multiplayer").
 
 ### Building for Linux (Dedicated Server)
 
@@ -123,14 +123,51 @@ The `CustomXrPawn` captures local HMD and controller transforms relative to the 
 ## API Reference Summary
 
 ### XrMpGameInstance
-- `SetNetworkMode(EXrNetworkMode NewMode)`: Switches the active networking subsystem.
-- `LoginOnlineService()`: Triggers the EOS login flow (Online mode only).
-- `HostSession(...)`: Creates a lobby or LAN session.
-- `FindSessions(...)`: Searches for available matches.
+Networking Functions:
+- `SetNetworkMode(EXrNetworkMode NewMode)` - Switches between `Local` (LAN), `Online` (EOS P2P), or `Dedicated` server mode
+- `GetNetworkMode()` - Returns the currently active network mode
+- `IsLoggedIntoEOS()` - Returns true if successfully authenticated with Epic Online Services
+- `LoginOnlineService()` - Initiates EOS login (Online mode only)
 
-### VR Keyboard
-- `SetTargetTextBox(UEditableTextBox* Target)`: Routes keyboard input to a specific UI element.
-- `OnKeyboardTextCommitted`: Event fired when the player presses 'Enter'.
+Session Management:
+- `HostSession(MaxPlayers, bIsLan, ServerName)` - Creates and hosts a multiplayer session
+- `FindSessions(MaxSearchResults, bIsLan)` - Searches for available sessions; results provided via `OnFindSessionsComplete_BP` delegate
+- `JoinSession(SessionIndex)` - Joins a session by index from the last search results
+- `JoinSessionByIP(HostIPAddress, Port)` - Joins by direct IP address (fallback method)
+- `DestroyCurrentSession()` - Destroys the active session
+- `GetSessionSearchResults()` - Returns cached array of `FXrMpSessionResult` from the last search
+- `IsSearchingForSessions()` - Returns true while a search is in progress (useful for UI spinners)
+- `GetSessionId()` - Returns the current session ID
+
+Dedicated Server Support:
+- `SetDedicatedServerApiConfig(BaseUrl, ApiToken)` - Configure registry API connection at runtime
+- `GetSessionRegistryToken()` - Returns the configured bearer token
+- `GetDedicatedSessionId()` - Returns the session ID assigned by the registry
+- `StartDedicatedRegistryHeartbeat()` - Begins periodic heartbeat updates to the registry (safe to call multiple times)
+- `StopDedicatedRegistryHeartbeat()` - Stops the heartbeat loop
+- `NotifyDedicatedPlayerCountChanged(CurrentPlayers)` - Call when players join/leave (updates registry and triggers heartbeat refresh)
+- `SendDedicatedHeartbeatUpdate()` - Sends an immediate heartbeat (regular cadence still controlled by timer)
+
+### VR Keyboard (UVrKeyboardWidget)
+- `SetTargetTextBox(UEditableTextBox*)` - Routes keyboard input to a specific text box
+- `GetTargetTextBox()` - Returns the currently targeted text box
+- `HasTargetTextBox()` - Returns true if a target text box is set
+- `SetKeyboardText(FString)` - Sets the keyboard buffer to the given text
+- `GetKeyboardText()` - Returns the current keyboard buffer contents
+- `ClearKeyboardText()` - Clears the keyboard buffer
+- `OnKeyboardTextChanged` - Event fired every time a key is pressed
+- `OnKeyboardTextCommitted` - Event fired when Enter is pressed
+
+### FXrMpSessionResult (Blueprint Session Data)
+Structure containing:
+- `ServerName` - Display name of the server
+- `OwnerName` - Name of the player who hosts/owns the session
+- `CurrentPlayers` - Current number of players in the session
+- `MaxPlayers` - Maximum players allowed
+- `PingInMs` - Latency to the server (-1 if unknown)
+- `SessionIndex` - Pass this to `JoinSession()` to join this server
+- `ConnectAddress` - Resolved connection address (dedicated servers)
+- `SessionId` - Dedicated server session ID for registry heartbeats
 
 ---
 

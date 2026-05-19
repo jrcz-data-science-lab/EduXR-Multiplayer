@@ -84,7 +84,7 @@ struct FXrMpSessionResult
 	UPROPERTY(BlueprintReadOnly, Category = "Session")
 	FString ConnectAddress;
 
-	/** Dedic­ated server session ID from registry (used for player-count heartbeats). */
+	/** Dedicated server session ID from registry (used for player-count heartbeats). */
 	UPROPERTY(BlueprintReadOnly, Category = "Session")
 	FString SessionId;
 };
