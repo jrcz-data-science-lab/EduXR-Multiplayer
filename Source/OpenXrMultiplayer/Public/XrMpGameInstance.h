@@ -528,6 +528,9 @@ private:
 	/** Sends player-count update using the latest authoritative values. */
 	void SendDedicatedPlayerCountUpdate();
 
+	/** Compute authoritative connected players on dedicated server (ignores stale BP values). */
+	int32 GetDedicatedCurrentPlayerCount() const;
+
 	/** Handles retries for player-count updates. */
 	void RetryDedicatedPlayerCountUpdate();
 

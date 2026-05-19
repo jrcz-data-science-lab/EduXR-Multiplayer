@@ -19,9 +19,11 @@
 #include "Interfaces/IHttpRequest.h"
 #include "Interfaces/IHttpResponse.h"
 #include "Dom/JsonObject.h"
+#include "GameFramework/GameStateBase.h"
 #include "Serialization/JsonSerializer.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
+#include "GameFramework/PlayerState.h"
 
 // ═══════════════════════════════════════════════════
 // Construction & Lifecycle
@@ -1849,8 +1851,21 @@ void UXrMpGameInstance::NotifyDedicatedPlayerCountChanged(int32 CurrentPlayers)
 		return;
 	}
 
+	int32 ResolvedCurrentPlayers = FMath::Max(0, CurrentPlayers);
+	if (const UWorld* World = GetWorld(); World && World->IsNetMode(NM_DedicatedServer))
+	{
+		const int32 AuthoritativePlayers = GetDedicatedCurrentPlayerCount();
+		if (AuthoritativePlayers != ResolvedCurrentPlayers)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("NotifyDedicatedPlayerCountChanged: BP reported %d players but authoritative server count is %d; using authoritative value"),
+				ResolvedCurrentPlayers,
+				AuthoritativePlayers);
+		}
+		ResolvedCurrentPlayers = AuthoritativePlayers;
+	}
+
 	// Store the pending player count update
-	PendingRegistryCurrentPlayers = FMath::Max(0, CurrentPlayers);
+	PendingRegistryCurrentPlayers = ResolvedCurrentPlayers;
 	PendingRegistryMaxPlayers = MaxPlayers;
 	bPendingRegistryPlayersUpdate = true;
 
@@ -1861,6 +1876,45 @@ void UXrMpGameInstance::NotifyDedicatedPlayerCountChanged(int32 CurrentPlayers)
 
 	// Send the update immediately (do not wait for heartbeat interval)
 	SendDedicatedPlayerCountUpdate();
+}
+
+int32 UXrMpGameInstance::GetDedicatedCurrentPlayerCount() const
+{
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0;
+	}
+
+	if (const AGameStateBase* GameState = World->GetGameState())
+	{
+		int32 Count = 0;
+		for (const APlayerState* PlayerState : GameState->PlayerArray)
+		{
+			if (IsValid(PlayerState) && !PlayerState->IsOnlyASpectator())
+			{
+				++Count;
+			}
+		}
+		return Count;
+	}
+
+	int32 ControllerCount = 0;
+	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	{
+		const APlayerController* PC = It->Get();
+		if (!IsValid(PC))
+		{
+			continue;
+		}
+
+		if (!PC->PlayerState || !PC->PlayerState->IsOnlyASpectator())
+		{
+			++ControllerCount;
+		}
+	}
+
+	return ControllerCount;
 }
 
 void UXrMpGameInstance::SendDedicatedPlayerCountUpdate()
@@ -2032,13 +2086,14 @@ void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()
 
 void UXrMpGameInstance::StartDedicatedRegistryHeartbeat()
 {
+	RefreshDedicatedRegistryRuntimeConfig();
+
 	if (!ShouldRunDedicatedRegistryReporting())
 	{
 		UE_LOG(LogTemp, Warning, TEXT("StartDedicatedRegistryHeartbeat: Not running on dedicated server or registry config incomplete"));
 		return;
 	}
 
-	RefreshDedicatedRegistryRuntimeConfig();
 
 	UWorld* World = GetWorld();
 	if (!World)
