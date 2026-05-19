@@ -33,6 +33,16 @@ UXrMpGameInstance::UXrMpGameInstance()
 {
 }
 
+FString UXrMpGameInstance::GetSessionRegistryToken() const
+{
+	return SessionRegistryToken;
+}
+
+FString UXrMpGameInstance::GetDedicatedSessionId() const
+{
+	return SessionId;
+}
+
 void UXrMpGameInstance::UpdateLANDiagnosticsSummary(const FString& Summary)
 {
 	LastLANDiagnosticsSummary = Summary;
@@ -1522,25 +1532,100 @@ void UXrMpGameInstance::OnSessionUserInviteAccepted(const bool bWasSuccessful, c
 
 void UXrMpGameInstance::DestroyCurrentSession()
 {
-	if (!SessionInterface.IsValid()) return;
+    if (!SessionInterface.IsValid()) return;
 
-	auto ExistingSession = SessionInterface->GetNamedSession(NAME_GameSession);
-	if (ExistingSession)
-	{
-		bool bIsOwner = false;
-		const ULocalPlayer* LocalPlayer = GetWorld() ? GetWorld()->GetFirstLocalPlayerFromController() : nullptr;
-		if (LocalPlayer)
-		{
-			FUniqueNetIdRepl UserId = LocalPlayer->GetPreferredUniqueNetId();
-			if (UserId.IsValid() && ExistingSession->OwningUserId.IsValid() && *UserId == *ExistingSession->OwningUserId)
-			{
-				bIsOwner = true;
-			}
-		}
+    auto ExistingSession = SessionInterface->GetNamedSession(NAME_GameSession);
+    if (ExistingSession)
+    {
+        bool bIsOwner = false;
+        const ULocalPlayer* LocalPlayer = GetWorld() ? GetWorld()->GetFirstLocalPlayerFromController() : nullptr;
+        if (LocalPlayer)
+        {
+            FUniqueNetIdRepl UserId = LocalPlayer->GetPreferredUniqueNetId();
+            if (UserId.IsValid() && ExistingSession->OwningUserId.IsValid() && *UserId == *ExistingSession->OwningUserId)
+            {
+                bIsOwner = true;
+            }
+        }
 
-		UE_LOG(LogTemp, Warning, TEXT("%s session"), bIsOwner ? TEXT("Destroying") : TEXT("Leaving"));
-		SessionInterface->DestroySession(NAME_GameSession);
-	}
+        UE_LOG(LogTemp, Warning, TEXT("%s session"), bIsOwner ? TEXT("Destroying") : TEXT("Leaving"));
+
+        // If we are a dedicated-mode client, just disconnect and inform the registry
+        // that we have left (attempt to decrement the known player count from the
+        // cached search results). The server is authoritative, but the client can
+        // send a best-effort update based on the last seen value.
+        if (ActiveNetworkMode == EXrNetworkMode::Dedicated)
+        {
+            UWorld* World = GetWorld();
+            const bool bIsDedicatedServerInstance = World ? World->IsNetMode(NM_DedicatedServer) : false;
+
+            if (!bIsDedicatedServerInstance)
+            {
+                // Attempt to compute a best-effort new player count by decrementing
+                // the cached search result we stored when joining.
+                int32 NewPlayers = 0;
+                int32 KnownMaxPlayers = MaxPlayers;
+                if (!SessionId.IsEmpty())
+                {
+                    for (const FXrMpSessionResult& R : CachedSearchResults)
+                    {
+                        if (!R.SessionId.IsEmpty() && R.SessionId == SessionId)
+                        {
+                            NewPlayers = FMath::Max(0, R.CurrentPlayers - 1);
+                            KnownMaxPlayers = R.MaxPlayers > 0 ? R.MaxPlayers : KnownMaxPlayers;
+                            UE_LOG(LogTemp, Warning, TEXT("DestroyCurrentSession (Dedicated client): Found cached session %s, current=%d, sending updated=%d"), *SessionId, R.CurrentPlayers, NewPlayers);
+                            break;
+                        }
+                    }
+
+                    // Build and send players update to registry (best-effort)
+                    FString Route = BuildSessionRegistryRoute(TEXT("/players"));
+                    if (!Route.IsEmpty())
+                    {
+                        auto Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
+                        TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+                        Payload->SetNumberField(TEXT("currentPlayers"), NewPlayers);
+                        Payload->SetNumberField(TEXT("maxPlayers"), KnownMaxPlayers);
+                        FString PayloadJson;
+                        TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&PayloadJson);
+                        FJsonSerializer::Serialize(Payload, Writer);
+                        Request->SetContentAsString(PayloadJson);
+
+                        UXrMpGameInstance* Self = this;
+                        Request->OnProcessRequestComplete().BindLambda(
+                            [Self](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+                            {
+                                if (!IsValid(Self)) return;
+                                const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+                                if (bSucceeded && HttpResponse.IsValid() && EHttpResponseCodes::IsOk(StatusCode))
+                                {
+                                    UE_LOG(LogTemp, Log, TEXT("DestroyCurrentSession: Registry players update succeeded (status %d)"), StatusCode);
+                                }
+                                else
+                                {
+                                    UE_LOG(LogTemp, Warning, TEXT("DestroyCurrentSession: Registry players update failed (bSucceeded=%s, status=%d)"), bSucceeded ? TEXT("true") : TEXT("false"), StatusCode);
+                                }
+                            });
+
+                        UE_LOG(LogTemp, Log, TEXT("DestroyCurrentSession: POST %s, payload=%s"), *Request->GetURL(), *PayloadJson);
+                        Request->ProcessRequest();
+                    }
+                }
+
+                // Finally, disconnect the client (return to main menu)
+                if (APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr)
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("DestroyCurrentSession: ClientTravel to return to menu %s"), *ReturnToMainMenuUrl);
+                    PC->ClientTravel(ReturnToMainMenuUrl, ETravelType::TRAVEL_Absolute);
+                }
+
+                return;
+            }
+        }
+
+        // Default behavior for non-dedicated flows: destroy the session via the OSS
+        SessionInterface->DestroySession(NAME_GameSession);
+    }
 }
 
 void UXrMpGameInstance::JoinSessionByIP(const FString& HostIPAddress, int32 Port)
@@ -2152,4 +2237,3 @@ void UXrMpGameInstance::SendDedicatedHeartbeatUpdate()
 	// Alias for direct heartbeat send (not the timer tick)
 	SendDedicatedHeartbeatTimerTick();
 }
-

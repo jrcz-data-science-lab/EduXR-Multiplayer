@@ -221,6 +221,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void SetDedicatedServerApiConfig(const FString& InBaseUrl, const FString& InApiToken);
 
+	/** Return the configured registry bearer token (exposed to other modules/blueprints). */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
+	FString GetSessionRegistryToken() const;
+
+	/** Return the configured dedicated server session id. */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
+	FString GetDedicatedSessionId() const;
+
 	/** Starts dedicated-server registry heartbeat loop if config/runtime mode allows it. Safe to call multiple times. */
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void StartDedicatedRegistryHeartbeat();
@@ -274,6 +282,12 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "XR Multiplayer")
 	bool IsSearchingForSessions() const { return bIsSearching; }
+	
+	/**
+	 * getter for Session ID.
+	 */
+	UFUNCTION(BlueprintCallable, BlueprintPure, Category = "XR Multiplayer")
+	FString GetSessionId() const { return SessionId; }
 
 protected:
 	/**
