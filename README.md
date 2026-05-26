@@ -98,7 +98,6 @@ Use your `XrMpGameInstance`-derived Blueprint defaults to set dedicated registry
 If your dedicated server receives `SESSION_ID` at launch, `StartDedicatedRegistryHeartbeat` can send heartbeat and player count updates to the registry.
 
 ### 6. Blueprint Screenshots
-Store screenshots in `Plugins/OpenXrMultiplayer/Docs/Images/` and keep these filenames so they render automatically:
 
 - `gameinstance-dedicated-settings.png`
 - `gamemode-playercount-flow.png`
