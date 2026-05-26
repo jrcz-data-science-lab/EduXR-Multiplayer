@@ -1,8 +1,4 @@
-﻿# Git LFS tracking for large binary files
-*.uasset filter=lfs diff=lfs merge=lfs -text
-*.umap filter=lfs diff=lfs merge=lfs -text
-
-# Ensure text files have proper line endings
+﻿# Ensure text files have proper line endings
 *.cpp text eol=lf
 *.h text eol=lf
 *.cs text eol=lf
