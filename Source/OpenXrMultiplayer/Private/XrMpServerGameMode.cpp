@@ -2,18 +2,33 @@
 
 #include "Engine/World.h"
 #include "GameFramework/GameStateBase.h"
+#include "GameFramework/PlayerState.h"
 #include "GameFramework/PlayerController.h"
+#include "TimerManager.h"
 #include "XrMpGameInstance.h"
 
 void AXrMpServerGameMode::PostLogin(APlayerController* NewPlayer)
 {
 	Super::PostLogin(NewPlayer);
-	NotifyPlayerCountChanged();
+	NotifyPlayerCountChangedNextTick();
 }
 
 void AXrMpServerGameMode::Logout(AController* Exiting)
 {
 	Super::Logout(Exiting);
+	NotifyPlayerCountChangedNextTick();
+}
+
+void AXrMpServerGameMode::NotifyPlayerCountChangedNextTick()
+{
+	if (UWorld* World = GetWorld())
+	{
+		FTimerDelegate Delegate;
+		Delegate.BindUObject(this, &AXrMpServerGameMode::NotifyPlayerCountChanged);
+		World->GetTimerManager().SetTimerForNextTick(Delegate);
+		return;
+	}
+
 	NotifyPlayerCountChanged();
 }
 
@@ -40,7 +55,15 @@ int32 AXrMpServerGameMode::GetCurrentPlayerCount() const
 {
 	if (GameState)
 	{
-		return GameState->PlayerArray.Num();
+		int32 Count = 0;
+		for (const APlayerState* PlayerState : GameState->PlayerArray)
+		{
+			if (IsValid(PlayerState) && !PlayerState->IsOnlyASpectator())
+			{
+				++Count;
+			}
+		}
+		return Count;
 	}
 
 	int32 Count = 0;

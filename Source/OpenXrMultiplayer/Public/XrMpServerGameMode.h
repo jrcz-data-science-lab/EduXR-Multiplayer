@@ -22,6 +22,9 @@ public:
 	virtual void Logout(AController* Exiting) override;
 
 private:
+	/** Defers player-count reporting by one tick so GameState.PlayerArray is settled. */
+	void NotifyPlayerCountChangedNextTick();
+
 	/** Called whenever player count changes (PostLogin or Logout). */
 	void NotifyPlayerCountChanged();
 

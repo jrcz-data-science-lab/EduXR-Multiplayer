@@ -1,43 +1,52 @@
-﻿﻿﻿﻿﻿# Changelog
+﻿# Changelog
 
-All notable changes to the EduXR Multiplayer Plugin will be documented in this file.
+All notable changes to the OpenXrMultiplayer Plugin will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [0.6.3] - 2026-05-04
-
-### Refined
-- **Documentation Overhaul** — Completely refactored `README.md` for public use. Improved structure, added clear "Quick Start" guide, and removed internal developer paths.
-- **Changelog Cleanup** — Professionalized the changelog by removing internal verification notes and technical jargon that doesn't add value for end-users.
-- **Task Management** — Reorganized `TODO.md` to clearly separate completed milestones from upcoming features.
+## [0.6.3] - Unreleased
 
 ### Focus
-Ongoing LAN discovery improvements and dedicated server flow validation.
+LAN diagnostics follow-up. OSS Null session setup is functioning, but cross-device discovery is not reliable on the test network. Direct IP join also timed out, pointing to a network-side peer connectivity / isolation issue rather than a pure session-configuration bug.
+
+### Notes
+- Same-machine multiplayer works, which confirms the host/session code path is healthy.
+- Next validation step is home testing on a trusted private LAN with two separate PCVR devices.
+- If discovery remains unreliable on target networks, the long-term path is EOS or dedicated-server matchmaking; keep `JoinSessionByIP()` as a manual fallback for debugging.
 
 ## [0.6.2] - 2026-03-18 (Beta)
 
 ### Status
-⚠️ **Beta Release** - UI flow and code-quality pass. Explicit startup mode (`None`), Blueprint graph cleanup, Build.cs dependency trim, and warning cleanup.
+[BETA] UI flow and code-quality pass. Explicit startup mode (`None`), Blueprint graph cleanup, Build.cs dependency trim, and warning cleanup.
 
 ### Added
 - **Explicit Neutral Startup Mode** — `EXrNetworkMode::None` is now the default startup state so menus begin in a neutral state before the player chooses Local or Online.
 
 ### Changed
-- **Blueprint Menu Cleanup** — widget graphs were cleaned up for readability and performance.
-- **Dependency Optimization** — Trimmed unused modules from the build configuration.
-- **Version Metadata** — Updated plugin versioning to `0.6.2`.
+- **Blueprint Menu Cleanup Completed** — widget graphs were cleaned up for readability (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`): rerouted execution flow, added comments, and removed dead nodes/unused variables.
+- **Build.cs Dependency Optimisation** — removed unused modules from `OpenXrMultiplayer.Build.cs` after direct include/reference audit:
+  - Removed `XRBase`
+  - Removed `NetCore`
+- **Version Metadata** — plugin `VersionName` updated to `0.6.2`.
 
 ### Fixed
-- **Build Warnings** — Resolved missing plugin dependencies and hidden overload warnings in `UXrMpGameInstance`.
+- **Build Warning: Missing plugin dependency** — added `EnhancedInput` to `OpenXrMultiplayer.uplugin` plugin dependencies to match module usage.
+- **Compiler Warnings C4263/C4264** — fixed hidden overload warnings in `UXrMpGameInstance` by exposing `UGameInstance::JoinSession` overloads.
+
+### Verification
+- Rebuilt `OpenXrMpEditor` (Win64 Development) after dependency trimming and warning fixes — build succeeded with no new linker errors.
+
+### Notes
+- Capsule collision rework remains under active testing and is intentionally excluded from this release notes section.
 
 ## [0.6.1] - 2026-03-12 (Beta)
 
 ### Status
-⚠️ **Beta Release** - Improved cross-device LAN discovery, EOS stability fixes, and terminal log cleanup. Active development.
+[BETA] Improved cross-device LAN discovery, EOS stability fixes, and terminal log cleanup. Active development.
 
 ### Engine Support
-- ✅ **Unreal Engine 5.7.3** - Tested and working
-- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+- [TESTED] **Unreal Engine 5.7.3** - Tested and working
+- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
 
 ### Tested On
 - Windows with UE 5.7.3
@@ -66,11 +75,11 @@ Ongoing LAN discovery improvements and dedicated server flow validation.
 ## [0.6.0] - 2026-03-10 (Beta)
 
 ### Status
-⚠️ **Beta Release** - Fully functional C++ VR virtual keyboard with button-driven target text box selection. Active development.
+[BETA] Fully functional C++ VR virtual keyboard with button-driven target text box selection. Active development.
 
 ### Engine Support
-- ✅ **Unreal Engine 5.7.2** - Tested and working
-- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+- [TESTED] **Unreal Engine 5.7.2** - Tested and working
+- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
 
 ### Tested On
 - Windows with UE 5.7.2
@@ -129,11 +138,11 @@ Ongoing LAN discovery improvements and dedicated server flow validation.
 ## [0.5.0] - 2026-03-04 (Beta)
 
 ### Status
-⚠️ **Beta Release** - Blueprint-exposed session search results, world-space UI widgets for server browsing. VR keyboard C++ removed — will be reimplemented as a Blueprint widget in v0.5.1. Active development.
+[BETA] Blueprint-exposed session search results, world-space UI widgets for server browsing. VR keyboard C++ removed — will be reimplemented as a Blueprint widget in v0.5.1. Active development.
 
 ### Engine Support
-- ✅ **Unreal Engine 5.7.2** - Tested and working
-- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+- [TESTED] **Unreal Engine 5.7.2** - Tested and working
+- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
 
 ### Tested On
 - Windows with UE 5.7.2
@@ -191,11 +200,11 @@ Ongoing LAN discovery improvements and dedicated server flow validation.
 ## [0.4.0] - 2026-02-27 (Beta)
 
 ### Status
-⚠️ **Beta Release** - VR physics collision rework, world-space UI interaction, gravity/jump system, and depenetration resolution. Active development.
+[BETA] VR physics collision rework, world-space UI interaction, gravity/jump system, and depenetration resolution. Active development.
 
 ### Engine Support
-- ✅ **Unreal Engine 5.7.2** - Tested and working
-- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+- [TESTED] **Unreal Engine 5.7.2** - Tested and working
+- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
 
 ### Tested On
 - Windows with UE 5.7.2
@@ -277,11 +286,11 @@ Ongoing LAN discovery improvements and dedicated server flow validation.
 ## [0.3.0] - 2026-02-25 (Beta)
 
 ### Status
-⚠️ **Beta Release** - VR tracking replication and session management working. Still in active development.
+[BETA] VR tracking replication and session management working. Still in active development.
 
 ### Engine Support
-- ✅ **Unreal Engine 5.7.2** - Tested and working
-- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+- [TESTED] **Unreal Engine 5.7.2** - Tested and working
+- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
 
 ### Tested On
 - Windows with UE 5.7.2
@@ -352,11 +361,11 @@ Ongoing LAN discovery improvements and dedicated server flow validation.
 ## [0.2.0] - 2026-02-10 (Beta)
 
 ### Status
-⚠️ **Beta Release** - Core multiplayer functionality working, still in active development
+[BETA] Core multiplayer functionality working, still in active development
 
 ### Engine Support
-- ✅ **Unreal Engine 5.7.2** - Tested and working
-- ⚠️ **Other UE5 versions** - Untested, may have compatibility issues
+- [TESTED] **Unreal Engine 5.7.2** - Tested and working
+- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
 
 ### Tested On
 - Windows with UE 5.7.2

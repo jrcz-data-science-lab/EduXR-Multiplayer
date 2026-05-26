@@ -8,8 +8,6 @@
 
 #include "CoreMinimal.h"
 #include "Engine/GameInstance.h"
-#include "OnlineSubsystemUtils.h"
-#include "Online/OnlineSessionNames.h"
 #include "OnlineSubsystem.h"
 #include "OnlineSessionSettings.h"
 #include "Interfaces/OnlineSessionInterface.h"
@@ -84,7 +82,7 @@ struct FXrMpSessionResult
 	UPROPERTY(BlueprintReadOnly, Category = "Session")
 	FString ConnectAddress;
 
-	/** Dedicated server session ID from registry (used for player-count heartbeats). */
+	/** Dedic­ated server session ID from registry (used for player-count heartbeats). */
 	UPROPERTY(BlueprintReadOnly, Category = "Session")
 	FString SessionId;
 };

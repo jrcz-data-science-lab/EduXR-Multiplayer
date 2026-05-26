@@ -1623,6 +1623,36 @@ void UXrMpGameInstance::DestroyCurrentSession()
             }
         }
 
+		// Dedicated server clean shutdown: stop heartbeat traffic and delete the registry session row.
+		StopDedicatedRegistryHeartbeat();
+
+		if (ShouldRunDedicatedRegistryReporting())
+		{
+			FString Route = BuildSessionRegistryRoute(TEXT(""));
+			if (!Route.IsEmpty())
+			{
+				auto Request = CreateDedicatedRegistryJsonRequest(TEXT("DELETE"), Route);
+				UXrMpGameInstance* Self = this;
+				Request->OnProcessRequestComplete().BindLambda(
+					[Self](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+					{
+						if (!IsValid(Self)) return;
+						const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+						if (bSucceeded && HttpResponse.IsValid() && EHttpResponseCodes::IsOk(StatusCode))
+						{
+							UE_LOG(LogTemp, Log, TEXT("DestroyCurrentSession: Registry session deleted (status %d)"), StatusCode);
+						}
+						else
+						{
+							UE_LOG(LogTemp, Warning, TEXT("DestroyCurrentSession: Registry session delete failed (bSucceeded=%s, status=%d)"), bSucceeded ? TEXT("true") : TEXT("false"), StatusCode);
+						}
+					});
+
+				UE_LOG(LogTemp, Log, TEXT("DestroyCurrentSession: DELETE %s"), *Request->GetURL());
+				Request->ProcessRequest();
+			}
+		}
+
         // Default behavior for non-dedicated flows: destroy the session via the OSS
         SessionInterface->DestroySession(NAME_GameSession);
     }
@@ -2136,6 +2166,8 @@ void UXrMpGameInstance::SendDedicatedHeartbeatTimerTick()
 	// Heartbeat can be empty or minimal payload
 	TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
 	Payload->SetStringField(TEXT("alive"), TEXT("true"));
+	Payload->SetNumberField(TEXT("currentPlayers"), GetDedicatedCurrentPlayerCount());
+	Payload->SetNumberField(TEXT("maxPlayers"), MaxPlayers);
 
 	FString PayloadJson;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&PayloadJson);
@@ -2237,3 +2269,4 @@ void UXrMpGameInstance::SendDedicatedHeartbeatUpdate()
 	// Alias for direct heartbeat send (not the timer tick)
 	SendDedicatedHeartbeatTimerTick();
 }
+
