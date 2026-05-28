@@ -1,420 +1,137 @@
-﻿# Changelog
+﻿# OpenXrMp Changelog
 
-All notable changes to the OpenXrMultiplayer Plugin will be documented in this file.
+## Unreleased - 2026-05-28
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+### Confirmed
 
-## [0.6.3] - Unreleased
-
-### Focus
-LAN diagnostics follow-up. OSS Null session setup is functioning, but cross-device discovery is not reliable on the test network. Direct IP join also timed out, pointing to a network-side peer connectivity / isolation issue rather than a pure session-configuration bug.
-
-### Notes
-- Same-machine multiplayer works, which confirms the host/session code path is healthy.
-- Next validation step is home testing on a trusted private LAN with two separate PCVR devices.
-- If discovery remains unreliable on target networks, the long-term path is EOS or dedicated-server matchmaking; keep `JoinSessionByIP()` as a manual fallback for debugging.
-
-## [0.6.2] - 2026-03-18 (Beta)
-
-### Status
-[BETA] UI flow and code-quality pass. Explicit startup mode (`None`), Blueprint graph cleanup, Build.cs dependency trim, and warning cleanup.
+* Dedicated server runtime is now using the updated registry API build
+  * Player-count issue is verified fixed after pulling the latest API version to server
 
 ### Added
-- **Explicit Neutral Startup Mode** — `EXrNetworkMode::None` is now the default startup state so menus begin in a neutral state before the player chooses Local or Online.
 
-### Changed
-- **Blueprint Menu Cleanup Completed** — widget graphs were cleaned up for readability (`WBP_HostMenu`, `WBP_FindMenu`, `WBP_MainMaster`, `WBP_Multiplayer`, `WBP_OnlineMode`, `WBP_XrMainMenu`): rerouted execution flow, added comments, and removed dead nodes/unused variables.
-- **Build.cs Dependency Optimisation** — removed unused modules from `OpenXrMultiplayer.Build.cs` after direct include/reference audit:
-  - Removed `XRBase`
-  - Removed `NetCore`
-- **Version Metadata** — plugin `VersionName` updated to `0.6.2`.
+* Client-side `LeaveDedicatedServer()` helper in `XrMpGameInstance`
+  * Allows clients to leave dedicated sessions cleanly and return to menu flow
 
-### Fixed
-- **Build Warning: Missing plugin dependency** — added `EnhancedInput` to `OpenXrMultiplayer.uplugin` plugin dependencies to match module usage.
-- **Compiler Warnings C4263/C4264** — fixed hidden overload warnings in `UXrMpGameInstance` by exposing `UGameInstance::JoinSession` overloads.
+### In Progress
 
-### Verification
-- Rebuilt `OpenXrMpEditor` (Win64 Development) after dependency trimming and warning fixes — build succeeded with no new linker errors.
-
-### Notes
-- Capsule collision rework remains under active testing and is intentionally excluded from this release notes section.
-
-## [0.6.1] - 2026-03-12 (Beta)
-
-### Status
-[BETA] Improved cross-device LAN discovery, EOS stability fixes, and terminal log cleanup. Active development.
-
-### Engine Support
-- [TESTED] **Unreal Engine 5.7.3** - Tested and working
-- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
-
-### Tested On
-- Windows with UE 5.7.3
-- Cross-device LAN networking (Null subsystem) with explicit port and broadcast configuration
-- EOS networking stability (fixed unique ID casting crashes)
-
-### Added
-- **Explicit LAN Configuration** — Added `BeaconPort=15000` and `AllowRemoteLocalhost=true` to `DefaultEngine.ini` to ensure session discovery works across different physical devices on the same network.
-- **Improved LAN Search Parameters** — Added `PingBucketSize = 100` to `FindSessions` for more reliable discovery on local networks.
-- **Stability Guardrails** — Added `bIsDedicated = false` and `bUsesStats = false` to session settings to align with standard Null subsystem expectations.
-
-### Fixed
-- **EOS Session Crashes** — Fixed `GetTypeStatic() == NetId.GetType()` assertion failure in `HostSession`, `FindSessions`, and `JoinSession` by explicitly fetching the EOS `UserId` from the identity interface when in Online mode.
-- **EOS Login Overlay Spam** — Prevented the EOS login overlay from appearing when hosting or finding sessions in Local/LAN mode.
-- **Terminal Spam Cleanup** — Disabled high-frequency debug logs:
-  - VR transform replication RPC logs in `CustomXrPawn.cpp`.
-  - Height verification debug logs in `CustomXrPawn.cpp`.
-  - Ground state/overlap debug logs in `VrMovementComponent.cpp`.
-
-### Changed
-- `DefaultEngine.ini` updated with `MaxNetTickRate=60` and `NetServerMaxTickRate=60` for consistent networking across instances.
-- Updated `TODO.md` to reflect completed items and current testing status.
+* Player collision launch bug validation is actively in test
+  * Repro is currently tied to dynamic grabbable physics objects (gun/blocks/ball)
+  * Static world collision (floor/walls) remains stable
+  * Final tuning and verification are ongoing before end-of-day push
 
 ---
 
-## [0.6.0] - 2026-03-10 (Beta)
+## 0.7.1 - 2026-05-28
 
-### Status
-[BETA] Fully functional C++ VR virtual keyboard with button-driven target text box selection. Active development.
+### Bug Fixes
 
-### Engine Support
-- [TESTED] **Unreal Engine 5.7.2** - Tested and working
-- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
-
-### Tested On
-- Windows with UE 5.7.2
-- Windows standalone mode multiplayer (VR host + desktop client)
-- LAN networking (Null subsystem)
-- EOS networking (when logged in)
-
-### Added
-- **Fully Functional C++ VR Virtual Keyboard (`UVrKeyboardWidget`)** — Complete QWERTY keyboard built entirely in C++ using Slate widgets, fully usable in world-space via a `WidgetComponent`
-  - Number row (0–9 + shifted symbols), QWERTY letter rows, Shift/Backspace/Enter/Space/Clear modifier keys
-  - Shift toggles case and auto-releases after one character
-  - Live preview text box at the top of the keyboard shows current input
-  - `OnKeyboardTextChanged` BlueprintAssignable delegate — fires every time a key is pressed
-  - `OnKeyboardTextCommitted` BlueprintAssignable delegate — fires when Enter is pressed, passes the committed text
-  - `SetKeyboardText` / `GetKeyboardText` / `ClearKeyboardText` BlueprintCallable functions
-  - `MaxCharacters` (default 128) and `bStartShiftEnabled` configurable in Blueprint defaults
-- **Target Text Box Selection via Buttons** — Each text box in a widget has a dedicated select button placed beside it; pressing it routes all keyboard input to that box
-  - `SetTargetTextBox(UEditableTextBox*)` BlueprintCallable — call from the select button's `OnClicked` event next to each text box
-  - `GetTargetTextBox()` / `HasTargetTextBox()` BlueprintPure utility functions
-  - When Enter is pressed, the committed text is written directly into the targeted `UEditableTextBox` and the keyboard buffer is cleared for the next input
-  - When `SetTargetTextBox` is called, the target box's existing text is loaded into the keyboard so the player can edit rather than replace
-  - `TWeakObjectPtr` used internally to prevent dangling pointer crashes
-  - No focus events or click-to-focus logic required — the player explicitly selects which box to type into
-- **`AVrKeyboard` Actor** — World-space actor with a `UWidgetComponent` that hosts the `UVrKeyboardWidget`
-  - Drop `BP_VrKeyboard` into any level and assign the widget class to get a floating keyboard in world-space
-  - Interact with it using the existing `WidgetInteractionComponent` on each motion controller (trigger simulates mouse click)
-
-### Changed
-- VR keyboard no longer deferred to a future Blueprint-only version — the C++ `UVrKeyboardWidget` is the final implementation
-- `BroadcastTextCommitted` now writes to `TargetTextBox` before broadcasting the delegate, ensuring the text box is updated before any Blueprint logic runs
-- Keyboard buffer is cleared automatically after `Enter` so it is ready for the next text box without manual reset
-
-### Planned for v0.6.1
-- **Blueprint code cleanup** — Refactor and add comments to all widget Blueprint graphs for readability
-- **Build.cs optimisation** — Audit `OpenXrMultiplayer.Build.cs` and remove any unnecessary module dependencies
-- **C++ code optimisation** — General pass over all plugin C++ files for performance, clarity, and consistency
-
-### Known Limitations
-- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
-- Seamless travel not supported — uses absolute travel for session creation
-- Primary testing on Windows platform only
-- UE 5.7.2 only — untested on other engine versions
-- Some Content/ assets still in development
-- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
-- Blueprint widget graphs not yet commented/cleaned up — coming in v0.6.1
-
-### Technical Details
-- `UVrKeyboardWidget` extends `UUserWidget`, overrides `RebuildWidget()` to return a fully Slate-built keyboard (no UMG designer required)
-- `ReleaseSlateResources` properly resets `TSharedPtr<SEditableTextBox> PreviewTextBox` to avoid Slate resource leaks
-- `FKeyDefinition` struct carries Normal label, Shifted label, `EKeyAction`, and relative width — all rows built from `TArray<FKeyDefinition>` in `BuildKeyboardWidget()`
-- `TWeakObjectPtr<UEditableTextBox> TargetTextBox` — safe across GC cycles, checked with `.IsValid()` before every write
-- Target selection flow: each text box has a select button beside it → `OnClicked` calls `SetTargetTextBox` on the keyboard → keyboard stores weak ref → Enter press writes committed text back via `SetText` and clears the buffer
+* Fixed player count accuracy in dedicated-server flow
+  * Deployed API-side player-events endpoint and idempotent delta handling
+  * Ensured dedicated server registers SessionId before sending player updates and flushes queued events
+  * Resolved runtime scenario where SessionId was empty and UpdatePlayersOnRegistry skipped updates
 
 ---
 
-## [0.5.0] - 2026-03-04 (Beta)
+## 0.7.0 - 2026-05-26
 
-### Status
-[BETA] Blueprint-exposed session search results, world-space UI widgets for server browsing. VR keyboard C++ removed — will be reimplemented as a Blueprint widget in v0.5.1. Active development.
+### Major Features
 
-### Engine Support
-- [TESTED] **Unreal Engine 5.7.2** - Tested and working
-- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
+* Complete dedicated server implementation for on-prem Linux deployment
+  * Session registry API with bearer token authentication
+  * Heartbeat-based session lifecycle management
+  * Player count tracking and updates via authoritative server state
+  * Linux server packaging and startup validation
 
-### Tested On
-- Windows with UE 5.7.2
-- Windows standalone mode multiplayer (VR host + desktop client)
-- LAN networking (Null subsystem)
-- EOS networking (when logged in)
+* End-to-end runtime validation
+  * Server successfully registers with registry on startup
+  * Player join/leave events trigger registry updates
+  * Client discovery and session joining via registry
+  * Full flow tested and operational
 
-### Added
-- **Blueprint-Exposed Session Search Results** — Full session data accessible from Blueprints for custom server browser widgets
-  - `FXrMpSessionResult` BlueprintType struct exposing: ServerName, OwnerName, CurrentPlayers, MaxPlayers, PingInMs, SessionIndex
-  - `OnFindSessionsComplete_BP` BlueprintAssignable multicast delegate — bind in any widget to receive results when `FindSessions()` completes
-  - `GetSessionSearchResults()` BlueprintCallable pure function — returns the cached array of `FXrMpSessionResult` from the last search
-  - `IsSearchingForSessions()` BlueprintCallable pure function — returns true while a search is in flight (use to show loading spinners)
-  - `SessionIndex` field in each result maps directly to `JoinSession(Index)` — no C++ needed to build a full server browser
-- **World-Space UI Server Browser** — Blueprint widgets placed in the world for browsing and joining sessions using motion controllers
-  - Interactive world-placed menus built with UMG widgets
-  - Motion controller pointing + trigger press to interact with UI elements
-- **WBP_VrKeyboard** — Empty Widget Blueprint placeholder in `Content/UI/Virtual/` for the upcoming Blueprint-based VR keyboard (v0.5.1)
+### Infrastructure
 
-### Removed
-- **VR Virtual Keyboard C++ Implementation** — `UVrKeyboardWidget`, `UVrKeyHelper`, and associated header/source files have been removed
-  - The C++ approach (building the full keyboard in `NativeConstruct()`) produced an empty designer in Widget Blueprints that inherited from it, making it difficult to extend or customize in the editor
-  - Will be reimplemented as a pure Blueprint widget in **v0.5.1** with full designer support and visual editability
+* Added SessionRegistryApi service with Python backend
+  * Implements core endpoints: POST /sessions, GET /sessions, DELETE /sessions
+  * Heartbeat endpoint: POST /sessions/{sessionId}/heartbeat
+  * Player count endpoint: POST /sessions/{sessionId}/players
+  * Admin panel: GET /admin with browser UI
+  * Comprehensive API documentation with response examples
 
-### Changed
-- `OnFindSessionsComplete` now populates a `TArray<FXrMpSessionResult>` cache and broadcasts `OnFindSessionsComplete_BP` to all bound Blueprint listeners
-- `FindSessions()` now sets `bIsSearching = true` before the async request, cleared when the callback fires
-- Session result logging now uses the cached `FXrMpSessionResult` for consistent CurrentPlayers/MaxPlayers display
+* Linux server build configuration
+  * OpenXrMpServer.Target.cs for headless server builds
+  * start_server.sh wrapper script for session registration
+  * SESSION_ID command-line argument handling
+  * Binary output: Binaries/Linux/OpenXrMpServer
 
-### Known Limitations
-- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
-- Seamless travel not supported — uses absolute travel for session creation
-- Primary testing on Windows platform only
-- UE 5.7.2 only — untested on other engine versions
-- Some Content/ assets still in development
-- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
-- VR keyboard not yet functional — placeholder only, full implementation coming in v0.5.1
+* Game mode integration
+  * PostLogin() hook triggers player count updates to registry
+  * Logout() hook decrements player count on disconnect
+  * UpdatePlayersOnRegistry() uses authoritative GameState player count
+  * Deferred updates by one tick for PlayerState settlement
 
-### Planned for v0.5.1
-- **Blueprint VR Virtual Keyboard** — Full QWERTY keyboard rebuilt as a Blueprint widget with designer-visible layout
-  - Number row, letter rows, Shift/Backspace/Space/Enter/Clear modifier keys
-  - Shift toggles case, auto-releases after one character
-  - Event dispatchers for `OnTextCommitted` and `OnKeyPressed`
-  - Fully editable in the UMG Designer — no more empty designer issue
-  - Place on a `WidgetComponent` in the world, interact with motion controller + trigger
+### Documentation
 
-### Technical Details
-- `FXrMpSessionResult` uses a unique name to avoid collision with engine's `FBlueprintSessionResult` in `FindSessionsCallbackProxy.h`
-- `FOnXrMpFindSessionsComplete` dynamic multicast delegate avoids engine typedef collision
-- Cached results stored in `TArray<FXrMpSessionResult> CachedSearchResults` private member
-- `bIsSearching` flag prevents overlapping searches and enables UI loading states
+* SessionRegistryApi/README.md - Complete registry API reference
+  * Endpoint definitions and response formats
+  * Session lifecycle policies (manual, auto_close_when_empty)
+  * Placeholder expansion for server launch
+  * Admin panel and heartbeat client documentation
 
----
+* Plugins/OpenXrMultiplayer/README.md - Updated plugin reference
+  * Engine version: 5.7.0+ (tested on 5.7.2 and 5.7.3)
+  * Comprehensive API documentation
+  * Dedicated server setup instructions
+  * VR keyboard widget reference
 
-## [0.4.0] - 2026-02-27 (Beta)
+* Project-wide roadmap and status tracking
+  * ROADMAP.md - High-level development status
+  * TODO.md - Plugin-specific development items
+  * CHANGELOG.md - This file
 
-### Status
-[BETA] VR physics collision rework, world-space UI interaction, gravity/jump system, and depenetration resolution. Active development.
+### Known Issues
 
-### Engine Support
-- [TESTED] **Unreal Engine 5.7.2** - Tested and working
-- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
+* None critical for 0.7.1 — player-count accuracy fixed in 0.7.1; remaining items tracked in ROADMAP.md and Plugins/OpenXrMultiplayer/TODO.md
 
-### Tested On
-- Windows with UE 5.7.2
-- Windows standalone mode multiplayer (VR host + desktop client)
-- LAN networking (Null subsystem)
-- EOS networking (when logged in)
+### Deprecated
 
-### Added
-- **World-Space Widget Interaction** — Trigger input bindings for in-world UI interaction
-  - `LeftTriggerAction` / `RightTriggerAction` input actions for pressing UI buttons via motion controllers
-  - `WidgetInteractionLeft` / `WidgetInteractionRight` configured with trace channel, interaction distance (500cm), and debug line visualization
-  - `PressPointerKey` / `ReleasePointerKey` with `EKeys::LeftMouseButton` to simulate mouse clicks on world-space UMG widgets
-  - World-space UI Blueprints (`BP_WorldMenu`, `BP_XrMenu`) edited to place interactive widgets in the level
-- **Gravity & Jump System** — Full gravity simulation in `VrMovementComponent`
-  - Configurable gravity (`GravityZ`, default -980 cm/s²) applied every tick when not grounded
-  - Ground detection via line trace from capsule center downward past capsule bottom
-  - Jump with `JumpZVelocity` (default 420 cm/s), only allowed when grounded
-  - Terminal velocity capped at -2000 cm/s to prevent fall-through
-  - `ServerJump` reliable Server RPC for network-replicated jumping
-  - Automatic floor-snap on landing — sweeps the pawn down to the detected floor surface
-- **Depenetration Resolution** — Escape from embedded geometry automatically
-  - Sweep-based penetration detection every tick before ground check
-  - Uses `ECC_WorldStatic` channel — only depenetrates against static world geometry, not physics objects
-  - Applies push-out along hit Normal with PenetrationDepth + margin
-  - Prevents the "frozen player" bug where embedded capsule blocks all sweep-based movement
-- **Capsule Overlap Physics Push** — Walking into physics objects pushes them away
-  - `OnCapsuleOverlap` callback applies impulse to simulating-physics actors
-  - Horizontal-only push direction (Z zeroed) to prevent launching objects skyward
-  - Configurable `PhysicsPushForce` (default 500N)
-  - Fallback: pushes in actor forward direction if object is directly on top of the player
-- **Spawn Position Floor Correction** — `VrMovementComponent::BeginPlay` traces downward to find the floor and positions the capsule correctly above it, preventing the capsule from spawning embedded in the floor
-- **VrOrigin Floor-Level Enforcement** — VrOrigin offset (`-HalfHeight`) reinforced in Constructor, BeginPlay, and every Tick to prevent Blueprint CDO from overriding the floor-level positioning
-- **Comprehensive Debug Logging** — Height debugging, ground state logging, movement delta tracking, and network state display (all stripped in shipping builds via `#if !UE_BUILD_SHIPPING`)
-
-### Changed
-- **Capsule Collision Rework** — Completely overhauled player-physics interaction
-  - Capsule radius reduced from 34cm to **20cm** — slimmer profile so players don't clip walls they're not near
-  - `ECC_PhysicsBody` and `ECC_Destructible` collision response changed from `ECR_Block` → **`ECR_Overlap`**
-  - Eliminates the "picked-up object collides with body and launches player at insane speeds" bug
-  - Eliminates the "walking into physics cubes stops the player dead" bug
-  - Capsule collision settings reinforced in BeginPlay to override Blueprint CDO values
-  - Overlap events enabled (`SetGenerateOverlapEvents(true)`) for physics push callback
-- **VrMovementComponent** now extends `UPawnMovementComponent` (was `UActorComponent`)
-  - Enables integration with Unreal's movement framework
-- **MoveForward / MoveRight** now use HMD (camera) forward/right direction instead of actor forward
-  - Movement is camera-relative: you walk where you're looking
-  - Returns the computed delta vector for server replication (server doesn't need VR tracking data)
-- **SnapTurn** now uses dual reset mechanism — deadzone reset + cooldown timer (`SnapTurnCooldown`, default 0.3s)
-  - Fixes the "snap turn only works once" bug where the neutral input never arrived
-- **Added `InputCore` module dependency** to `OpenXrMultiplayer.Build.cs` for `EKeys::LeftMouseButton` symbol
-
-### Fixed
-- Fixed physics objects (cubes, guns, balls) colliding with player capsule and launching the player at extreme speeds — capsule now overlaps instead of blocking physics objects
-- Fixed player capsule being too wide (34cm radius) causing wall collisions when the player wasn't visually near walls — reduced to 20cm
-- Fixed player unable to move after spawning — capsule was embedded in the floor; added spawn floor correction and depenetration resolution
-- Fixed VrOrigin being at capsule center instead of capsule bottom — player appeared ~2.5m tall; offset now enforced every tick
-- Fixed depenetration system pushing player away from held/grabbed physics objects — depenetration now only checks `ECC_WorldStatic`, ignoring physics bodies
-- Fixed `LNK2019` linker error for `EKeys::LeftMouseButton` — added `InputCore` module to Build.cs dependencies
-- Fixed snap turn only firing once per session — added cooldown-based reset as fallback when neutral input doesn't arrive
-
-### Known Limitations
-- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
-- Seamless travel not supported — uses absolute travel for session creation
-- Primary testing on Windows platform only
-- UE 5.7.2 only — untested on other engine versions
-- Some Content/ assets still in development
-- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
-
-### Technical Details
-- Capsule overlap response for `ECC_PhysicsBody` with impulse-based push in overlap callback
-- `ResolvePenetration` sweep against `ECC_WorldStatic` only — safe for grabbed objects
-- Floor correction in `VrMovementComponent::BeginPlay` via downward `ECC_WorldStatic` line trace
-- Ground detection via line trace + gravity tick with terminal velocity cap
-- VrOrigin Z-offset enforced in Constructor (-88), BeginPlay (-HalfHeight), and Tick (conditional set)
-- Widget interaction via `PressPointerKey`/`ReleasePointerKey` on `EKeys::LeftMouseButton`
+* LAN peer-to-peer discovery deprioritized
+  * Network infrastructure restrictions prevent reliable LAN discovery
+  * Dedicated server model provides superior reliability
+  * JoinSessionByIP() remains available for fallback/diagnostics
 
 ---
 
-## [0.3.0] - 2026-02-25 (Beta)
+## 0.6.3 - 2026-04-07
 
-### Status
-[BETA] VR tracking replication and session management working. Still in active development.
+### Bug Fixes & Improvements
 
-### Engine Support
-- [TESTED] **Unreal Engine 5.7.2** - Tested and working
-- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
+* Fixed Blueprint graph organisation and documentation
+* Optimized Build.cs module dependencies
+* Resolved EOS login early-exit in Local/LAN modes
+* Added EnhancedInput plugin dependency
+* Fixed JoinSession hidden overload warnings
+* Network mode UI flow now starts with explicit None state
 
-### Tested On
-- Windows with UE 5.7.2
-- Windows standalone mode multiplayer (VR host + desktop client, desktop host + VR client)
-- LAN networking (Null subsystem)
-- EOS networking (when logged in)
+### Networking
 
-### Added
-- **CustomXrPawn** — Full VR pawn with multiplayer-replicated head and hand tracking
-  - Camera, MotionControllerLeft, MotionControllerRight created in C++ constructor
-  - HeadMountedDisplayMesh, HandLeft, HandRight skeletal/static meshes for remote player visuals
-  - WidgetInteractionComponent on each hand for UI pointing
-  - CapsuleComponent for collision
-  - PlayerMesh for body representation
-- **VR Tracking Replication** — Head and both hand transforms replicated to all clients
-  - Transforms captured relative to VrOrigin (rotation-independent, avoids world-space issues)
-  - Server RPC (`ServerUpdateVRTransforms`) sends tracking data every tick (unreliable, high frequency)
-  - `COND_SkipOwner` on replicated properties to avoid fighting with local HMD tracking
-  - Non-local pawns disable HMD lock and motion controller tracking sources in BeginPlay to prevent the engine from overriding replicated transforms
-- **VrMovementComponent** — Smooth locomotion and snap turn for VR
-  - `MoveForward` / `MoveRight` — horizontal-plane movement with sweep collision
-  - `SnapTurn` — discrete rotation with deadzone and cooldown to prevent repeated turns
-  - All movement applied via `AddActorWorldOffset` / `SetActorRotation`, compatible with `bReplicateMovement`
-- **Movement Replication** — Input-driven movement works on both server and client pawns
-  - Local input executes immediately for responsiveness (client-side prediction)
-  - Server RPCs (`ServerMoveForward`, `ServerMoveRight`, `ServerSnapTurn`) execute authoritatively on the server
-  - `bReplicateMovement` syncs the server's actor position to all clients automatically
-  - Snap turn uses reliable RPC (discrete event), movement uses unreliable RPCs (continuous input)
-- **Comprehensive code comments** — All `.h` and `.cpp` files documented with `/** */` format
-  - Replication design overview in CustomXrPawn.h header
-  - Every function, property, and design decision explained
-  - Comments written for the next developer to understand why and what
-
-### Changed
-- **Session management** — Net driver now only reconfigured when using EOS (not on every host call)
-  - Prevents unnecessary IpNetDriver → IpNetDriver reconfiguration for Null subsystem
-  - EOS net driver (`NetDriverEOSBase`) only activated when `bIsLoggedIntoEOS` is true
-- **EOS auto-login handling** — EOS auto-login no longer triggers multiplayer subsystem switch
-  - `bIsLoggedIntoEOS` only set to `true` when user explicitly calls `LoginOnlineService()`
-  - Auto-login by EOS SDK is tracked separately and does not affect subsystem selection
-- **Removed PIE support from documentation** — PIE multiplayer testing is not functional and has been de-emphasized
-
-### Fixed
-- Fixed hands appearing grouped at world center on remote pawns — caused by MotionControllerComponent resetting transforms every tick when no physical controller is connected. Solution: disable tracking source and tick on non-local pawns.
-- Fixed replication only working when VR player is the host — added Server RPCs so client-owned pawns can send tracking data to the server for redistribution.
-- Fixed EOS auto-login on host — hosting a session no longer triggers EOS login; only explicit `LoginOnlineService()` call switches to EOS networking.
-- Fixed linker error for `ConfigureNetDriverForSubsystem` — ensured implementation matches header declaration.
-- Fixed `WidgetInteractionComponent` linker error — added `UMG` module dependency.
-
-### Known Limitations
-- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
-- Seamless travel not supported — uses absolute travel for session creation
-- Primary testing on Windows platform only
-- UE 5.7.2 only — untested on other engine versions
-- Some Content/ assets still in development
-- PIE (Play-in-Editor) multiplayer not functional — use standalone builds for testing
-
-### Technical Details
-- Built for Unreal Engine 5.7.2
-- Uses Online Subsystem architecture (EOS + Null)
-- Relative transform replication (VrOrigin-space) for rotation-independent tracking sync
-- `SetNetUpdateFrequency(60)` / `SetMinNetUpdateFrequency(30)` for smooth VR tracking
-- Unreliable Server RPCs for continuous tracking/movement data, reliable for discrete events (snap turn)
-- `COND_SkipOwner` replication condition to avoid bandwidth waste and tracking conflicts
+* LAN session discovery investigation completed
+  * Identified network-side restrictions blocking peer discovery
+  * Cross-device testing showed infrastructure-level isolation
+  * Decision: Focus on dedicated server flow
 
 ---
 
-## [0.2.0] - 2026-02-10 (Beta)
+## 0.6.2 and earlier
 
-### Status
-[BETA] Core multiplayer functionality working, still in active development
+* Initial plugin development
+* VR template integration
+* OpenXR and EOS support
+* LAN and Online session modes
+* Virtual keyboard implementation
+* Blueprint menu system
 
-### Engine Support
-- [TESTED] **Unreal Engine 5.7.2** - Tested and working
-- [UNTESTED] **Other UE5 versions** - Untested, may have compatibility issues
+---
 
-### Tested On
-- Windows with UE 5.7.2
-- Windows standalone mode multiplayer
-- Windows packaged build
-- LAN networking (Null subsystem)
-- EOS networking (when logged in)
-
-### Added
-- Dual network mode support (EOS and Null subsystem)
-- Automatic subsystem detection based on login status
-- Session management (Create, Find, Join, Destroy)
-- Blueprint-accessible API for multiplayer functions
-- Automatic net driver configuration
-- Dummy user ID creation for Null subsystem (no login required)
-- Smart EOS/LAN switching based on explicit login
-- Comprehensive logging for debugging
-- Blueprint examples and UI components in Content/ directory
-- Level prototypes for testing
-
-### Features
-- **Host Session**: Create and host multiplayer sessions
-- **Find Sessions**: Browse available sessions with customizable search
-- **Join Session**: Connect to sessions from search results
-- **Login to EOS**: Optional online multiplayer with Epic Online Services
-- **Automatic Fallback**: Uses LAN if EOS not available
-
-### Configuration
-- IpNetDriver as primary with EOS fallback for maximum compatibility
-- Null subsystem enabled for LAN play
-- EOS subsystem enabled for online play
-- Configurable map URLs and session settings
-
-### Known Limitations
-- EOS voice chat requires ≤16 players (auto-disabled for larger lobbies)
-- Seamless travel not supported - uses absolute travel
-- Primary testing on Windows platform only
-- UE 5.7.2 only - untested on other engine versions
-- Some Content/ assets still in development
-
-### Technical Details
-- Built for Unreal Engine 5.7.2
-- Uses Online Subsystem architecture
-- Proper delegate handling for session callbacks
-- User ID management for both authenticated and unauthenticated scenarios
-- Net driver configuration system for automatic switching
-
-### Content Directory
-- **Blueprints/** - Blueprint examples and utility actors
-- **Levels/** - Test levels for multiplayer
-- **UI/** - UI components for multiplayer menus
+*Project started: 2026*
+*Latest update: 2026-05-28 (final push in progress)*
 
