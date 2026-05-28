@@ -64,31 +64,31 @@ Deprioritized. Dedicated server approach eliminates need for complex peer discov
 
 ---
 
-## IN PROGRESS - Player Count Accuracy
+## COMPLETED - Player Count Accuracy
 
-**Issue:** Player count may not reflect actual connected clients in all scenarios
-* Root cause: Timing misalignment between join/leave events and registry updates
-* Symptom: Registry shows stale count e.g., always shows 1 instead of actual count
-* Mitigation: Server uses deferred tick for join/leave; heartbeats include count for eventual consistency
+**Issue (fixed 2026-05-28):** Player count did not always reflect connected clients due to a timing race between server session registration and player join/leave updates.
+* Root cause: Server sometimes failed to register (SessionId empty) before PostLogin/Logout attempted registry updates, causing skipped updates and stale counts.
+* Fix: Deployed API-side delta endpoint (`POST /sessions/{sessionId}/player-events`), idempotent event handling (`eventId`), and ensured dedicated server pulls the latest API before sending player updates. Server now queues/flushed events until `SessionId` is present and retries registration when needed.
+* Verification: New server build using updated registry API was pulled and validated on 2026-05-28; player counts now update reliably in runtime tests.
 
 **Code:** Source/OpenXrMp/XrGameMode.cpp (PostLogin, Logout, UpdatePlayersOnRegistry)
 
-**Priority:** Medium - Will fix in next iteration
+**Priority:** Completed
 
-**Test checklist when working on this:**
-- [ ] Single player join -> registry shows 1/N
-- [ ] Multiple sequential joins -> registry increments correctly
-- [ ] Player disconnect -> registry decrements correctly
-- [ ] Rapid join/leave -> count remains accurate
-- [ ] Server graceful shutdown -> registry shows 0/N or session deleted
-- [ ] Server hard-killed -> heartbeat timeout eventually clears session
-- [ ] Reconnect after disconnect -> count updates correctly
+**Test checklist (verified):**
+- [x] Single player join -> registry shows 1/N
+- [x] Multiple sequential joins -> registry increments correctly
+- [x] Player disconnect -> registry decrements correctly
+- [x] Rapid join/leave -> count remains accurate
+- [x] Server graceful shutdown -> registry shows 0/N or session deleted
+- [x] Server hard-killed -> heartbeat timeout eventually clears session
+- [x] Reconnect after disconnect -> count updates correctly
 
 ---
 
-## PLANNED - Collision System Integration
+## IN PROGRESS - Collision System Integration
 
-### Capsule Collision and Physics
+### Capsule Collision and Physics (working)
 
 * [ ] Physics launch bug: Objects colliding with capsule cause unintended player movement
   * Investigate remaining ECR_Block responses and impulse paths
@@ -132,6 +132,6 @@ Deprioritized. Dedicated server approach eliminates need for complex peer discov
 
 ---
 
-*Last updated: 2026-05-26*
+*Last updated: 2026-05-28*
 *See ROADMAP.md for project-wide status and CHANGELOG.md for version history*
 

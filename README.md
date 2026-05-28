@@ -97,6 +97,8 @@ Use your `XrMpGameInstance`-derived Blueprint defaults to set dedicated registry
 
 If your dedicated server receives `SESSION_ID` at launch, `StartDedicatedRegistryHeartbeat` can send heartbeat and player count updates to the registry.
 
+Note: Player-count timing issues were addressed on 2026-05-28 by deploying API-side player-events and improving server session registration/flush logic. If you are running older server builds, please pull the latest server build to ensure reliable player count reporting.
+
 ### 6. Blueprint Screenshots
 
 - `gameinstance-dedicated-settings.png`
