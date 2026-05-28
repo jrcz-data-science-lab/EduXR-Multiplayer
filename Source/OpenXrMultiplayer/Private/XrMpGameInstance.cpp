@@ -21,6 +21,7 @@
 #include "Dom/JsonObject.h"
 #include "GameFramework/GameStateBase.h"
 #include "Serialization/JsonSerializer.h"
+#include "Online/OnlineSessionNames.h"
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "GameFramework/PlayerState.h"
@@ -1656,6 +1657,71 @@ void UXrMpGameInstance::DestroyCurrentSession()
         // Default behavior for non-dedicated flows: destroy the session via the OSS
         SessionInterface->DestroySession(NAME_GameSession);
     }
+}
+
+void UXrMpGameInstance::LeaveDedicatedServer()
+{
+	if (ActiveNetworkMode != EXrNetworkMode::Dedicated)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LeaveDedicatedServer: Not in Dedicated network mode; ignoring"));
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	const bool bIsDedicatedServerInstance = World ? World->IsNetMode(NM_DedicatedServer) : false;
+	if (bIsDedicatedServerInstance)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LeaveDedicatedServer: Called on a dedicated server process; use DestroyCurrentSession() instead"));
+		return;
+	}
+
+	// Try to send an API-side leave event for idempotent delta handling. Best-effort only.
+	if (!SessionId.IsEmpty())
+	{
+		FString Route = BuildSessionRegistryRoute(TEXT("/player-events"));
+		if (!Route.IsEmpty())
+		{
+			auto Request = CreateDedicatedRegistryJsonRequest(TEXT("POST"), Route);
+			TSharedRef<FJsonObject> Payload = MakeShared<FJsonObject>();
+			Payload->SetStringField(TEXT("event"), TEXT("leave"));
+			// Use a GUID-based eventId for idempotency
+			Payload->SetStringField(TEXT("eventId"), FGuid::NewGuid().ToString(EGuidFormats::Digits));
+			FString PayloadJson;
+			TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&PayloadJson);
+			FJsonSerializer::Serialize(Payload, Writer);
+
+			UXrMpGameInstance* Self = this;
+			Request->OnProcessRequestComplete().BindLambda(
+				[Self](FHttpRequestPtr HttpRequest, FHttpResponsePtr HttpResponse, bool bSucceeded)
+				{
+					if (!IsValid(Self)) return;
+					const int32 StatusCode = HttpResponse.IsValid() ? HttpResponse->GetResponseCode() : -1;
+					if (bSucceeded && HttpResponse.IsValid() && EHttpResponseCodes::IsOk(StatusCode))
+					{
+						UE_LOG(LogTemp, Log, TEXT("LeaveDedicatedServer: player-events leave succeeded (status %d)"), StatusCode);
+					}
+					else
+					{
+						UE_LOG(LogTemp, Warning, TEXT("LeaveDedicatedServer: player-events leave failed (bSucceeded=%s, status=%d)"), bSucceeded ? TEXT("true") : TEXT("false"), StatusCode);
+					}
+				});
+
+			UE_LOG(LogTemp, Log, TEXT("LeaveDedicatedServer: POST %s, payload=%s"), *Request->GetURL(), *PayloadJson);
+			Request->SetContentAsString(PayloadJson);
+			Request->ProcessRequest();
+		}
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LeaveDedicatedServer: SessionId empty; cannot post leave event"));
+	}
+
+	// Finally, disconnect the client (return to main menu)
+	if (APlayerController* PC = World ? World->GetFirstPlayerController() : nullptr)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("LeaveDedicatedServer: ClientTravel to return to menu %s"), *ReturnToMainMenuUrl);
+		PC->ClientTravel(ReturnToMainMenuUrl, ETravelType::TRAVEL_Absolute);
+	}
 }
 
 void UXrMpGameInstance::JoinSessionByIP(const FString& HostIPAddress, int32 Port)

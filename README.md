@@ -21,6 +21,8 @@ A robust multiplayer networking solution for Unreal Engine 5, specifically desig
 - **Client-Side Prediction**: Instant responsiveness for the local player with server-reconciled movement.
 - **Refined Collision**: Slim capsule collider design to minimize wall clipping and prevent physics-based "launch" bugs.
 
+Current status (2026-05-28): collision launch behavior is still under active final-push testing for dynamic grabbable physics actors; static world collision (ground/walls) is currently stable.
+
 ### Virtual Reality Interaction
 - **C++ VR Keyboard**: A high-performance QWERTY keyboard built in Slate, accessible via world-space UI.
 - **Smart Focus System**: Button-driven text box targeting, allowing players to select exactly where they want to type.
@@ -135,6 +137,7 @@ Session Management:
 - `FindSessions(MaxSearchResults, bIsLan)` - Searches for available sessions; results provided via `OnFindSessionsComplete_BP` delegate
 - `JoinSession(SessionIndex)` - Joins a session by index from the last search results
 - `JoinSessionByIP(HostIPAddress, Port)` - Joins by direct IP address (fallback method)
+- `LeaveDedicatedServer()` - Leaves a dedicated session on the client and returns to menu flow
 - `DestroyCurrentSession()` - Destroys the active session
 - `GetSessionSearchResults()` - Returns cached array of `FXrMpSessionResult` from the last search
 - `IsSearchingForSessions()` - Returns true while a search is in progress (useful for UI spinners)

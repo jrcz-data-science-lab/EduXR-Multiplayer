@@ -47,6 +47,7 @@ All items completed as of 2026-05-26.
 * [x] Network mode UI flow with explicit None default state
 * [x] Missing EnhancedInput plugin dependency
 * [x] JoinSession hidden overload warnings
+* [x] Added client `LeaveDedicatedServer()` helper for dedicated flow exit
 
 ---
 
@@ -88,10 +89,13 @@ Deprioritized. Dedicated server approach eliminates need for complex peer discov
 
 ## IN PROGRESS - Collision System Integration
 
-### Capsule Collision and Physics (working)
+### Capsule Collision and Physics (active testing)
+
+Current status (2026-05-28 final push): collision launch issue is reproducible when dynamic grabbable actors overlap player collision. Static world collision (ground/walls) is stable.
 
 * [ ] Physics launch bug: Objects colliding with capsule cause unintended player movement
-  * Investigate remaining ECR_Block responses and impulse paths
+  * Focus testing on dynamic physics/grabbable actors (default gun, grab blocks, grab ball)
+  * Investigate remaining ECR_Block responses and overlap impulse paths
   * Root cause analysis on current collision configuration
   
 * [ ] Remove PhysicsPushForce / impulse-on-overlap
@@ -108,6 +112,12 @@ Deprioritized. Dedicated server approach eliminates need for complex peer discov
 * Source/OpenXrMp/Pawn (Capsule and collision setup)
 * Source/OpenXrMp/XrGameMode (Overlap event handlers)
 * Config/DefaultEngine.ini (Physics and collision settings)
+
+**Testing focus for final push (today):**
+- [ ] Hold/move dynamic grabbables into capsule at different velocities
+- [ ] Validate no launch behavior during overlap and release cycles
+- [ ] Re-verify static world collisions (ground/walls/slopes)
+- [ ] Re-test in dedicated server runtime with at least 2 clients
 
 ---
 
@@ -132,6 +142,6 @@ Deprioritized. Dedicated server approach eliminates need for complex peer discov
 
 ---
 
-*Last updated: 2026-05-28*
+*Last updated: 2026-05-28 (collision final-push testing in progress)*
 *See ROADMAP.md for project-wide status and CHANGELOG.md for version history*
 

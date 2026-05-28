@@ -243,6 +243,14 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
 	void SendDedicatedHeartbeatUpdate();
 
+	/**
+	 * Client-side helper to leave a dedicated server gracefully.
+	 * Sends a best-effort API-side player "leave" event (idempotent) and
+	 * returns the client to the configured main-menu map.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "XR Multiplayer|Dedicated Server")
+	void LeaveDedicatedServer();
+
 	// ─────────────────────────────────────────────
 	// Properties
 	// ─────────────────────────────────────────────

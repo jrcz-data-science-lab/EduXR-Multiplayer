@@ -411,6 +411,45 @@ void UVrMovementComponent::SyncCapsuleToHmdXY()
 		DesiredDelta = DesiredDelta.GetSafeNormal2D() * MaxCapsuleRecenterPerTick;
 	}
 
+	// Safety: avoid recentering INTO dynamic physics objects (grabbables/guns/balls).
+	// If the target capsule location would overlap any simulating-physics body,
+	// skip recenter this frame to prevent physics-driven launch/instability.
+	FVector CapsuleWorldLoc = Capsule->GetComponentLocation();
+	FVector ProposedWorldLoc = CapsuleWorldLoc + DesiredDelta;
+	float HalfHeight = Capsule->GetScaledCapsuleHalfHeight();
+	float Radius = Capsule->GetScaledCapsuleRadius();
+
+	// Perform an overlap test at the proposed new capsule center against physics bodies.
+	TArray<FOverlapResult> Overlaps;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(ownerPawn);
+	FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(Radius, HalfHeight);
+
+	bool bWouldOverlapPhysics = GetWorld()->OverlapMultiByChannel(
+		Overlaps,
+		ProposedWorldLoc,
+		FQuat::Identity,
+		ECC_PhysicsBody,
+		CapsuleShape,
+		QueryParams);
+
+	if (bWouldOverlapPhysics && Overlaps.Num() > 0)
+	{
+		// Inspect overlaps for simulating components; if any are simulating, skip recenter.
+		for (const FOverlapResult& R : Overlaps)
+		{
+			if (!R.GetComponent()) continue;
+			UPrimitiveComponent* Prim = Cast<UPrimitiveComponent>(R.GetComponent());
+			if (!Prim) continue;
+			if (Prim->IsSimulatingPhysics())
+			{
+				UE_LOG(LogTemp, Warning, TEXT("SYNC_CAPSULE | Skipping recenter: would overlap simulating physics actor %s"),
+					R.GetActor() ? *R.GetActor()->GetName() : TEXT("<unknown>"));
+				return;
+			}
+		}
+	}
+
 	const FVector BeforeMove = ownerPawn->GetActorLocation();
 	ownerPawn->AddActorWorldOffset(DesiredDelta, true);
 
